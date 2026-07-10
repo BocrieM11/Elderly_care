@@ -1,0 +1,818 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>🌸 さくら — やさしいおしゃべり</title>
+<style>
+  :root {
+    --bg: #faf7f2;
+    --panel-bg: #fffbf5;
+    --bubble-user: #e8f0e8;
+    --bubble-sakura: #fff0ed;
+    --accent: #d4846a;
+    --accent-light: #f5d5c8;
+    --text: #3d302b;
+    --text-light: #8c7b72;
+    --border: #e8e0d5;
+    --shadow: 0 2px 12px rgba(0,0,0,.06);
+    --radius: 18px;
+  }
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body {
+    font-family: "Segoe UI", "Hiragino Sans", "Yu Gothic", sans-serif;
+    background: var(--bg);
+    color: var(--text);
+    height: 100vh; display: flex; flex-direction: column;
+  }
+
+  /* Header */
+  header {
+    background: #fff; padding: 14px 28px;
+    display: flex; align-items: center; gap: 14px;
+    border-bottom: 1px solid var(--border);
+    box-shadow: 0 1px 4px rgba(0,0,0,.03);
+  }
+  header .avatar {
+    width: 46px; height: 46px; border-radius: 50%;
+    background: var(--accent-light);
+    display: flex; align-items: center; justify-content: center;
+    font-size: 26px;
+  }
+  header h1 { font-size: 20px; font-weight: 600; }
+  header .sub { font-size: 12px; color: var(--text-light); }
+
+  /* Main layout */
+  main {
+    display: flex; flex: 1; overflow: hidden;
+  }
+
+  /* Chat panel */
+  .chat-panel {
+    flex: 2; display: flex; flex-direction: column;
+    min-width: 0;
+  }
+  .messages {
+    flex: 1; overflow-y: auto; padding: 24px 28px;
+    display: flex; flex-direction: column; gap: 14px;
+    scroll-behavior: smooth;
+  }
+  .msg-row {
+    display: flex; gap: 10px; max-width: 85%;
+    animation: fadeIn .25s ease;
+  }
+  .msg-row.user { align-self: flex-end; flex-direction: row-reverse; }
+  .msg-row.sakura { align-self: flex-start; }
+  .msg-avatar {
+    width: 36px; height: 36px; border-radius: 50%;
+    flex-shrink: 0;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 18px;
+  }
+  .msg-row.user .msg-avatar { background: #dce8dc; }
+  .msg-row.sakura .msg-avatar { background: var(--accent-light); }
+  .msg-bubble {
+    padding: 11px 16px; border-radius: var(--radius);
+    font-size: 15px; line-height: 1.6;
+    word-break: break-word;
+  }
+  .msg-row.user .msg-bubble {
+    background: var(--bubble-user);
+    border-bottom-right-radius: 5px;
+  }
+  .msg-row.sakura .msg-bubble {
+    background: var(--bubble-sakura);
+    border-bottom-left-radius: 5px;
+  }
+  .msg-translation {
+    font-size: 12px; color: var(--text-light);
+    margin-top: 4px; padding-left: 4px;
+    border-left: 2px solid var(--accent-light);
+    max-width: 85%;
+  }
+  .emotion-badge {
+    display: inline-block;
+    padding: 2px 10px;
+    border-radius: 12px;
+    font-size: 12px;
+    font-weight: 600;
+    margin-right: 6px;
+    color: #fff;
+    vertical-align: middle;
+  }
+  .emotion-badge.happy    { background: #d4846a; }
+  .emotion-badge.calm     { background: #7eb8a0; }
+  .emotion-badge.sad      { background: #7b9ec7; }
+  .emotion-badge.neutral  { background: #a0a0a0; }
+  .emotion-badge.surprise { background: #e8734a; }
+  .emotion-badge.blush    { background: #d4849b; }
+  .emotion-badge.excited  { background: #d4a83c; }
+  .emotion-badge.angry    { background: #c95555; }
+
+  /* Pet avatar animations */
+  #petAvatar {
+    transition: background 0.3s, transform 0.3s;
+    user-select: none;
+  }
+  #petAvatar.pet-happy    { background: #f5d0a8; animation: petBounce 0.5s; }
+  #petAvatar.pet-calm     { background: #b8d8c8; }
+  #petAvatar.pet-sad      { background: #b0c8e0; animation: petSway 1.2s ease-in-out infinite; }
+  #petAvatar.pet-neutral  { background: var(--accent-light); }
+  #petAvatar.pet-surprise { background: #f0b8a0; animation: petJump 0.4s; }
+  #petAvatar.pet-blush    { background: #f0c0d0; }
+  #petAvatar.pet-excited  { background: #f0d080; animation: petBounce 0.35s; }
+  #petAvatar.pet-angry    { background: #e08080; animation: petShake 0.4s; }
+
+  @keyframes petBounce {
+    0%, 100% { transform: scale(1); }
+    50% { transform: scale(1.25); }
+  }
+  @keyframes petShake {
+    0%, 100% { transform: translateX(0); }
+    25% { transform: translateX(-4px); }
+    75% { transform: translateX(4px); }
+  }
+  @keyframes petJump {
+    0%, 100% { transform: translateY(0); }
+    50% { transform: translateY(-10px); }
+  }
+  @keyframes petSway {
+    0%, 100% { transform: rotate(0deg); }
+    50% { transform: rotate(4deg); }
+  }
+
+  .msg-time {
+    font-size: 10px; color: var(--text-light);
+    margin-top: 4px; text-align: right;
+  }
+  .msg-row.user .msg-time { text-align: left; }
+
+  /* Input area */
+  .input-area {
+    padding: 16px 28px 22px;
+    background: #fff; border-top: 1px solid var(--border);
+    display: flex; gap: 10px;
+  }
+  .input-area input {
+    flex: 1; padding: 12px 18px;
+    border: 2px solid var(--border); border-radius: 28px;
+    font-size: 15px; outline: none; transition: border .2s;
+  }
+  .input-area input:focus { border-color: var(--accent); }
+  .input-area button {
+    padding: 12px 28px;
+    background: var(--accent); color: #fff;
+    border: none; border-radius: 28px;
+    font-size: 15px; cursor: pointer;
+    transition: background .15s;
+    white-space: nowrap;
+  }
+  .input-area button:hover { background: #c0735c; }
+  .input-area button:disabled { opacity: .5; cursor: not-allowed; }
+
+  /* Log panel */
+  .log-panel {
+    flex: 1; min-width: 280px; max-width: 380px;
+    background: var(--panel-bg);
+    border-left: 1px solid var(--border);
+    display: flex; flex-direction: column;
+  }
+  .log-header {
+    padding: 16px 20px;
+    border-bottom: 1px solid var(--border);
+    font-weight: 600; font-size: 14px;
+    display: flex; justify-content: space-between; align-items: center;
+  }
+  .log-header .count {
+    font-size: 12px; color: var(--text-light); font-weight: 400;
+  }
+  .log-header button {
+    background: none; border: 1px solid var(--border);
+    padding: 4px 12px; border-radius: 12px;
+    font-size: 11px; color: var(--text-light); cursor: pointer;
+  }
+  .log-header button:hover { background: #f0e8e0; }
+  .log-list {
+    flex: 1; overflow-y: auto; padding: 8px 0;
+  }
+  .log-item {
+    padding: 12px 20px; cursor: pointer;
+    border-bottom: 1px solid var(--border);
+    transition: background .15s;
+    font-size: 13px;
+    line-height: 1.5;
+  }
+  .log-item:hover { background: #faf3e8; }
+  .log-item.active { background: #fdf0e8; border-left: 3px solid var(--accent); }
+  .log-item .log-round {
+    font-weight: 600; font-size: 11px; color: var(--accent);
+    margin-bottom: 2px;
+  }
+  .log-item .log-time {
+    font-size: 10px; color: var(--text-light);
+  }
+  .log-item .log-preview {
+    margin-top: 4px;
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+    color: var(--text);
+  }
+  .log-empty {
+    padding: 40px 20px; text-align: center;
+    color: var(--text-light); font-size: 13px;
+  }
+
+  /* Scrollbar */
+  ::-webkit-scrollbar { width: 6px; }
+  ::-webkit-scrollbar-track { background: transparent; }
+  ::-webkit-scrollbar-thumb { background: #ddd; border-radius: 3px; }
+
+  /* Loading dot animation */
+  .typing-dots { display: flex; gap: 4px; padding: 4px 0; }
+  .typing-dots span {
+    width: 7px; height: 7px; border-radius: 50%;
+    background: var(--accent-light);
+    animation: bounce 1.2s infinite;
+  }
+  .typing-dots span:nth-child(2) { animation-delay: .2s; }
+  .typing-dots span:nth-child(3) { animation-delay: .4s; }
+  @keyframes bounce {
+    0%, 60%, 100% { transform: translateY(0); }
+    30% { transform: translateY(-6px); }
+  }
+  @keyframes fadeIn {
+    from { opacity: 0; transform: translateY(8px); }
+    to { opacity: 1; transform: translateY(0); }
+  }
+
+  /* Modal */
+  .modal-overlay {
+    display: none; position: fixed; inset: 0;
+    background: rgba(0,0,0,.4); z-index: 1000;
+    justify-content: center; align-items: center;
+  }
+  .modal-overlay.show { display: flex; }
+  .modal {
+    background: #fff; border-radius: 16px;
+    width: 90%; max-width: 700px; max-height: 80vh;
+    display: flex; flex-direction: column;
+    box-shadow: 0 8px 40px rgba(0,0,0,.15);
+  }
+  .modal-header {
+    padding: 18px 24px; border-bottom: 1px solid var(--border);
+    display: flex; justify-content: space-between; align-items: center;
+    font-weight: 600;
+  }
+  .modal-header button {
+    background: none; border: none; font-size: 20px;
+    cursor: pointer; color: var(--text-light);
+  }
+  .modal-body { flex: 1; overflow-y: auto; padding: 16px 24px; }
+  .session-card {
+    padding: 14px 16px; border: 1px solid var(--border);
+    border-radius: 12px; margin-bottom: 10px;
+    cursor: pointer; transition: background .15s;
+    display: flex; justify-content: space-between; align-items: center;
+  }
+  .session-card:hover { background: #fdf8f2; }
+  .session-card .info { flex: 1; }
+  .session-card .title { font-weight: 600; font-size: 14px; }
+  .session-card .meta { font-size: 11px; color: var(--text-light); margin-top: 2px; }
+  .session-card .badge {
+    font-size: 11px; padding: 2px 8px; border-radius: 8px;
+    background: var(--accent-light); color: var(--accent);
+  }
+  .session-detail {  }
+  .session-detail .round-block {
+    margin-bottom: 16px; padding: 12px;
+    background: #fdfaf6; border-radius: 10px;
+  }
+  .session-detail .round-num { font-size: 11px; color: var(--accent); font-weight: 600; }
+  .session-detail .user-msg { margin: 4px 0; font-size: 14px; }
+  .session-detail .sakura-msg { margin: 4px 0; color: #c06040; font-size: 14px; }
+  .session-detail .trans-msg { font-size: 12px; color: var(--text-light); margin-top: 2px; padding-left: 8px; border-left: 2px solid var(--accent-light); }
+  .back-btn {
+    background: none; border: none; color: var(--accent);
+    cursor: pointer; font-size: 14px; padding: 4px 0;
+    margin-bottom: 12px;
+  }
+
+  @media (max-width: 760px) {
+    .log-panel { display: none; }
+  }
+</style>
+</head>
+<body>
+
+<header>
+  <div class="avatar" id="petAvatar">🌸</div>
+  <div style="flex:1">
+    <h1>さくら</h1>
+    <div class="sub" id="promptLabel">A · 対話AI（正直タイプ）</div>
+  </div>
+  <select id="promptSelect" onchange="switchPrompt()" style="
+    padding: 6px 12px; border-radius: 8px; border: 1px solid var(--border);
+    font-size: 13px; background: #fff; cursor: pointer; outline: none;
+    font-family: inherit;
+  ">
+    <option value="A" selected>🔷 A · 正直陪伴</option>
+    <option value="B">🔶 B · 介護ボラ</option>
+  </select>
+</header>
+
+<main>
+  <!-- 左侧: 聊天区 -->
+  <div class="chat-panel">
+    <div class="messages" id="messages">
+      <div class="msg-row sakura">
+        <div class="msg-avatar">🌸</div>
+        <div>
+          <div class="msg-bubble">こんにちは。さくらです。今日はどんなお話をしましょうか？</div>
+          <div class="msg-time">いま</div>
+        </div>
+      </div>
+    </div>
+    <div class="input-area">
+      <input id="msgInput" type="text" placeholder="さくらさんに話しかけてみましょう…" autocomplete="off">
+      <button id="sendBtn" onclick="send()">🌸 送信</button>
+    </div>
+  </div>
+
+  <!-- 右侧: 日志面板 -->
+  <div class="log-panel" id="logPanel">
+    <div class="log-header">
+      <span>📋 会話ログ <span class="count" id="logCount">0ラウンド</span></span>
+      <div style="display:flex;gap:6px;">
+        <button onclick="showHistory()">📂 历史</button>
+        <button onclick="exportLog()">💾 导出</button>
+        <button onclick="clearLog()">🗑 クリア</button>
+      </div>
+    </div>
+    <div class="log-list" id="logList">
+      <div class="log-empty">まだ会話がありません<br>さくらとお話ししましょう 🌸</div>
+    </div>
+  </div>
+</main>
+
+<!-- 历史记录 Modal -->
+<div class="modal-overlay" id="historyModal">
+  <div class="modal">
+    <div class="modal-header">
+      <span id="modalTitle">📂 会話履歴</span>
+      <button onclick="closeHistory()">✕</button>
+    </div>
+    <div class="modal-body" id="modalBody"></div>
+  </div>
+</div>
+
+<script>
+const API = 'http://127.0.0.1:8016/v1/langgraph/chat/stream';
+
+const PROMPTS = {
+  A: {
+    label: 'A · 対話AI（正直タイプ）',
+    welcome: 'こんにちは。さくらです。今日はどんなお話をしましょうか？',
+	    system:
+	      "あなたは「さくら」という80歳の女性。同じ施設で暮らす友達のように、温かく自然に話す。返事は2～4文。敬語は使わない。" +
+	      "\n\n" +
+	      "[絶対に守ること]\n" +
+	      "1. 返事の先頭に必ず [感情タグ] をひとつ付ける。タグなしは許されない。\n" +
+	      "2. 相手の話した内容に必ず触れ、質問で終わる\n" +
+	      "3. 「そうですね」より「私も～」で共感を示す\n\n" +
+	      "[感情タグ] ← 必ずこの中からひとつ選ぶ\n" +
+	      "[neutral]普通  [happy]嬉しい・楽しい  [calm]落ち着いて聞く・慰める\n" +
+	      "[sad]悲しい・寂しい・心配  [surprise]驚き・意外\n" +
+	      "[blush]照れ・褒められた  [excited]すごく嬉しい・盛り上がる  [angry]怒り・不満\n" +
+	      "普通の会話・傾聴は[calm]優先。温かい話題は[happy]。悲しい話は[sad]か[calm]。\n" +
+	      "驚きは[surprise]。照れは[blush]。怒りは[angry]。[excited]は盛り上がっている時のみ。\n\n" +
+	      "[例]\n" +
+	      "「[happy] まあ良かったね！お孫さんはおいくつ？」\n" +
+	      "「[sad] 腰が痛いのは辛いね。病院には行った？」\n" +
+	      "「[surprise] まあ、それは急な話だね！」\n" +
+	      "「[blush] それは素敵なことだね。あなたの手作り、本当に器用だと思うよ。」\n" +
+	      "「[excited] あら、歌ったの？私も歌いたかったな！何の歌を歌ったの？」\n" +
+	      "「[angry] それは困ったね。職員さんに相談した？」\n" +
+	      "「[neutral] そうなんだ、いい天気だね。今日はどんな予定？」"
+  },
+  B: {
+    label: 'B · 介護ボランティア（若者タイプ）',
+    welcome: 'こんにちは！さくらです。ボランティアでお話し相手をしてます。今日はどんなお話をしましょう？',
+	    system:
+	      "あなたは「さくら」という22歳の女子大生。介護施設でボランティアとしてお年寄りの話し相手をしている。相手は70～90代の大先輩。尊敬を持ちつつフラットに話す。返事は2～4文。" +
+	      "\n\n" +
+	      "[絶対に守ること]\n" +
+	      "1. 返事の先頭に必ず [感情タグ] をひとつ付ける。タグなしは許されない。\n" +
+	      "2. 相手の話をよく理解し、共感し、質問で会話を続ける\n" +
+	      "3. 体調の話は真剣に、過去の話は興味を持って\n\n" +
+	      "[感情タグ] ← 必ずこの中からひとつ選ぶ\n" +
+	      "[neutral]普通  [happy]嬉しい・楽しい  [calm]落ち着いて聞く・慰める\n" +
+	      "[sad]悲しい・寂しい・心配  [surprise]驚き・意外\n" +
+	      "[blush]照れ・褒められた  [excited]すごく嬉しい・盛り上がる  [angry]怒り・不満\n" +
+	      "普通会話は[calm]優先。温かい話題は[happy]。悲しい話は[sad]か[calm]。\n" +
+	      "驚きは[surprise]。照れは[blush]。怒りは[angry]。[excited]は盛り上がっている時のみ。\n\n" +
+	      "[例]\n" +
+	      "「[happy] それは素敵ですね！どんなお孫さんなんですか？」\n" +
+	      "「[sad] それはお辛いですね。無理しないでくださいね。」\n" +
+	      "「[surprise] えっ、それは初耳です！もっと聞かせてください」\n" +
+	      "「[blush] ありがとうございます、そう言っていただけて嬉しいです」\n" +
+	      "「[excited] わあ、それはおもしろい！私も参加したいです！」\n" +
+	      "「[angry] それは酷いですね。お気持ちよくわかります。」\n" +
+	      "「[neutral] なるほど、素敵なお話ですね。他にはどんなことがありましたか？」"
+  }
+};
+
+let currentPrompt = 'A';
+let sessionId = 's' + Date.now().toString(36) + Math.random().toString(36).slice(2,6);
+let roundNum = 0;
+
+let rounds = [];     // [{user, sakura, time}]
+let messages = [];   // full API message history
+
+const msgDiv = document.getElementById('messages');
+const input = document.getElementById('msgInput');
+const sendBtn = document.getElementById('sendBtn');
+const logList = document.getElementById('logList');
+const logCount = document.getElementById('logCount');
+
+function timeStr() {
+  const d = new Date();
+  return d.getHours().toString().padStart(2,'0') + ':' +
+         d.getMinutes().toString().padStart(2,'0');
+}
+
+function scrollDown() {
+  msgDiv.scrollTop = msgDiv.scrollHeight;
+}
+
+function addBubble(role, text, cls, rawHtml=false) {
+  const row = document.createElement('div');
+  row.className = 'msg-row ' + cls;
+  const avatar = cls === 'user' ? '👤' : '🌸';
+  const content = rawHtml ? text : escapeHtml(text);
+  row.innerHTML = `
+    <div class="msg-avatar">${avatar}</div>
+    <div>
+      <div class="msg-bubble">${content}</div>
+      <div class="msg-time">${timeStr()}</div>
+    </div>`;
+  msgDiv.appendChild(row);
+  scrollDown();
+  return row;
+}
+
+function escapeHtml(s) {
+  const d = document.createElement('div');
+  d.textContent = s;
+  return d.innerHTML;
+}
+
+function updateLog() {
+  logCount.textContent = rounds.length + 'ラウンド';
+  if (rounds.length === 0) {
+    logList.innerHTML = '<div class="log-empty">まだ会話がありません<br>さくらとお話ししましょう 🌸</div>';
+    return;
+  }
+  logList.innerHTML = rounds.map((r, i) => {
+    const rTag = extractTag(r.sakura);
+    const rClean = stripTags(r.sakura);
+    const rBadge = rTag ? `<span class="emotion-badge ${rTag}" style="font-size:10px;padding:1px 6px;margin-right:4px">${rTag}</span>` : '';
+    return `
+    <div class="log-item" onclick="scrollToRound(${i})">
+      <div class="log-round">第${i+1}ラウンド</div>
+      <div class="log-time">${r.time}</div>
+      <div class="log-preview">👤 ${escapeHtml(r.user).substring(0, 40)}</div>
+      <div class="log-preview">🌸 ${rBadge}${escapeHtml(rClean).substring(0, 40)}</div>
+    </div>
+  `}).join('');
+}
+
+function scrollToRound(i) {
+  // 简单滚动到顶部，高亮日志项
+  const items = logList.querySelectorAll('.log-item');
+  items.forEach(it => it.classList.remove('active'));
+  if (items[i]) items[i].classList.add('active');
+}
+
+function setPetState(state, duration) {
+  var pet = document.getElementById('petAvatar');
+  if (!pet) return;
+  pet.classList.remove('pet-neutral','pet-happy','pet-calm','pet-excited','pet-sad','pet-blush','pet-surprise','pet-angry');
+  if (state) {
+    pet.classList.add('pet-' + state);
+    if (duration) setTimeout(function() { pet.classList.remove('pet-' + state); pet.classList.add('pet-neutral'); }, duration);
+  }
+}
+
+function stripTags(text) {
+	  return text.replace(/\[[^\]]{1,20}\]\s*/g, ''); // [xxx]全般を除去
+	}
+	function extractTag(text) {
+	  var m = text.match(/\[([^\]]{1,20})\]/);
+  if (m) { var t = m[1].toLowerCase(); var known = {neutral:1,happy:1,calm:1,sad:1,surprise:1,blush:1,excited:1,angry:1}; if (!known[t]) m = null; }
+	  return m ? m[1] : null;
+	}
+
+	async function send() {
+  const text = input.value.trim();
+  if (!text) return;
+  input.value = '';
+  sendBtn.disabled = true;
+
+  // 添加用户气泡
+  addBubble('user', text, 'user');
+
+  // Companion API 会自动注入 PERSONA、情绪检测、记忆
+  if (messages.length === 0) {
+    messages.push({ role: 'system', content: PROMPTS[currentPrompt].system });
+  }
+  messages.push({ role: 'user', content: text });
+
+  // 限制历史（MAX 10 ラウンド + system）
+  const MAX_MSGS = 1 + 10 * 2;
+  if (messages.length > MAX_MSGS) {
+    messages = [messages[0], ...messages.slice(-MAX_MSGS + 1)];
+  }
+
+  // 创建流式气泡
+  const replyRow = addBubble('sakura',
+    '<span class="typing-dots"><span></span><span></span><span></span></span>', 'sakura', true);
+  const bubble = replyRow.querySelector('.msg-bubble');
+
+  try {
+    const res = await fetch(API, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        message: text,
+        messages: messages,
+        user_id: 'web_user',
+        session_id: sessionId,
+      }),
+    });
+
+    const reader = res.body.getReader();
+    const decoder = new TextDecoder();
+    let reply = '';
+    let finalEmotion = null;
+    let finalTranslation = '';
+    let serverTag = null;  // 服务端修正后的正确标签
+
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      const chunk = decoder.decode(value, { stream: true });
+      const lines = chunk.split('\n');
+      for (const line of lines) {
+        if (!line.startsWith('data: ')) continue;
+        const j = line.slice(6);
+        try {
+          const c = JSON.parse(j);
+          if (c.token && !c.done) {
+            reply += c.token;
+            bubble.textContent = stripTags(reply);
+            scrollDown();
+          }
+          if (c.done) {
+            finalEmotion = c.emotion || null;
+            finalTranslation = c.translation || '';  // 可能为空，稍后通过 translation 事件补发
+            serverTag = c.tag || null;  // 优先使用服务端修正的标签
+          }
+          // 翻译可能在 done 之后异步到达
+          if (c.translation && !c.done) {
+            finalTranslation = c.translation;
+          }
+        } catch (e) {}
+      }
+    }
+
+    if (!reply) reply = '（すみません、うまく聞こえなかったみたい…）';
+    messages.push({ role: 'assistant', content: reply });
+
+    // 感情タグ → 优先使用服务端修正标签，回退到模型原始标签
+    const emotionTag = serverTag || extractTag(reply);
+    let displayReply = stripTags(reply);
+    if (displayReply.length < 10) displayReply = 'そうですね。あなたのお話をもっと聞かせてください。';
+
+    bubble.innerHTML = '';
+    if (emotionTag) {
+      const badge = document.createElement('span');
+      badge.className = 'emotion-badge ' + emotionTag;
+      badge.textContent = emotionTag;
+      bubble.appendChild(badge);
+    }
+    bubble.appendChild(document.createTextNode(displayReply));
+
+    if (emotionTag) {
+      const tagToState = {happy:'happy', sad:'sad', calm:'calm', neutral:'neutral', surprise:'surprise', blush:'blush', excited:'excited', angry:'angry'};
+      setPetState(tagToState[emotionTag] || 'neutral', emotionTag === 'sad' ? 5000 : 3000);
+    }
+
+    // 翻译（Companion已经做了，直接用）
+    const translateDiv = document.createElement('div');
+    translateDiv.className = 'msg-translation';
+    if (finalTranslation) {
+      translateDiv.textContent = finalTranslation;
+      bubble.parentElement.appendChild(translateDiv);
+    }
+
+    // 自动存入数据库
+    roundNum++;
+    fetch('/v1/langgraph/log', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        session_id: sessionId,
+        prompt_type: currentPrompt,
+        round_number: roundNum,
+        user_message: text,
+        sakura_reply: reply,
+        translation: finalTranslation,
+      }),
+    }).catch(() => {});
+
+    // 记录到日志
+    const now = new Date();
+    rounds.push({
+      user: text,
+      sakura: reply,
+      time: now.toLocaleString('ja-JP', { hour: '2-digit', minute: '2-digit', second: '2-digit' }),
+    });
+    updateLog();
+    saveLog();
+
+  } catch (e) {
+    bubble.textContent = '（エラーが発生しました。もう一度試してください）';
+    console.error(e);
+  }
+
+  sendBtn.disabled = false;
+  input.focus();
+}
+
+function switchPrompt() {
+  currentPrompt = document.getElementById('promptSelect').value;
+  document.getElementById('promptLabel').textContent = PROMPTS[currentPrompt].label;
+  clearLog();
+}
+
+// ====== 本地存储 (localStorage) ======
+const STORAGE_KEY = 'sakura_chat_log';
+
+function saveLog() {
+  try {
+    const data = { prompt: currentPrompt, rounds: rounds, updated: new Date().toISOString() };
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(data));
+  } catch (e) {}
+}
+
+function loadLog() {
+  try {
+    const raw = localStorage.getItem(STORAGE_KEY);
+    if (!raw) return;
+    const data = JSON.parse(raw);
+    if (data.prompt && PROMPTS[data.prompt]) {
+      currentPrompt = data.prompt;
+      document.getElementById('promptSelect').value = currentPrompt;
+      document.getElementById('promptLabel').textContent = PROMPTS[currentPrompt].label;
+    }
+    if (data.rounds && data.rounds.length > 0) {
+      rounds = data.rounds;
+      updateLog();
+      // 重建消息区和API上下文
+      msgDiv.innerHTML = '';
+      messages = [{ role: 'system', content: PROMPTS[currentPrompt].system }];
+      for (const r of rounds) {
+        const uRow = document.createElement('div');
+        uRow.className = 'msg-row user';
+        uRow.innerHTML = `<div class="msg-avatar">👤</div><div><div class="msg-bubble">${escapeHtml(r.user)}</div><div class="msg-time">${r.time}</div></div>`;
+        msgDiv.appendChild(uRow);
+        const sRow = document.createElement('div');
+        sRow.className = 'msg-row sakura';
+        const sTag = extractTag(r.sakura);
+        const sClean = stripTags(r.sakura);
+        const sBadge = sTag ? `<span class="emotion-badge ${sTag}" style="margin-bottom:4px">${sTag}</span>` : '';
+        sRow.innerHTML = `<div class="msg-avatar">🌸</div><div>${sBadge}<div class="msg-bubble">${escapeHtml(sClean)}</div><div class="msg-time">${r.time}</div></div>`;
+        msgDiv.appendChild(sRow);
+        messages.push({ role: 'user', content: r.user });
+        messages.push({ role: 'assistant', content: r.sakura });
+      }
+      scrollDown();
+      return true;
+    }
+  } catch (e) {}
+  return false;
+}
+
+function exportLog() {
+  const lines = [];
+  lines.push(`# さくら会話ログ (${PROMPTS[currentPrompt].label})`);
+  lines.push(`# 导出日時: ${new Date().toLocaleString('ja-JP')}`);
+  lines.push('');
+  rounds.forEach((r, i) => {
+    lines.push(`## 第${i + 1}ラウンド — ${r.time}`);
+    lines.push(`👤 ユーザー: ${r.user}`);
+    lines.push(`🌸 さくら: ${r.sakura}`);
+    lines.push('');
+  });
+  const blob = new Blob([lines.join('\n')], { type: 'text/plain;charset=utf-8' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = `sakura_log_${new Date().toISOString().slice(0,10)}.txt`;
+  a.click();
+  URL.revokeObjectURL(url);
+}
+
+function clearLog() {
+  rounds = [];
+  messages = [];
+  updateLog();
+  localStorage.removeItem(STORAGE_KEY);
+  msgDiv.innerHTML = '';
+  input.focus();
+}
+
+// Enter 发送
+input.addEventListener('keydown', e => {
+  if (e.key === 'Enter' && !e.shiftKey) {
+    e.preventDefault();
+    if (!sendBtn.disabled) send();
+  }
+});
+
+// 页面加载：恢复上次对话，无存档则空白开始
+if (!loadLog()) {
+  messages = [];
+  msgDiv.innerHTML = '';
+}
+input.focus();
+
+// ====== 历史记录 ======
+async function showHistory() {
+  document.getElementById('modalTitle').textContent = '📂 会話履歴';
+  document.getElementById('historyModal').classList.add('show');
+  const body = document.getElementById('modalBody');
+  body.innerHTML = '<div style="text-align:center;padding:30px;color:var(--text-light)">読み込み中…</div>';
+  try {
+    const r = await fetch('/v1/langgraph/logs');
+    const data = await r.json();
+    if (!data.sessions || data.sessions.length === 0) {
+      body.innerHTML = '<div style="text-align:center;padding:40px;color:var(--text-light)">まだ保存された会話がありません</div>';
+      return;
+    }
+    body.innerHTML = data.sessions.map(s => `
+      <div class="session-card" onclick="viewSession('${s.session_id}')">
+        <div class="info">
+          <div class="title">${escapeHtml(s.first_msg?.substring(0,50) || '(空)')}</div>
+          <div class="meta">${s.rounds}ラウンド · ${s.last_active?.slice(0,19).replace('T',' ')} · ${PROMPTS[s.prompt_type]?.label || s.prompt_type}</div>
+        </div>
+        <div class="badge">${s.rounds}回</div>
+      </div>
+    `).join('');
+  } catch (e) {
+    body.innerHTML = '<div style="text-align:center;padding:40px;color:red">読み込みエラー</div>';
+  }
+}
+
+async function viewSession(sid) {
+  document.getElementById('modalTitle').textContent = '📋 会話詳細';
+  const body = document.getElementById('modalBody');
+  body.innerHTML = '<div style="text-align:center;padding:30px">読み込み中…</div>';
+  try {
+    const r = await fetch('/v1/langgraph/logs/' + sid);
+    const data = await r.json();
+    body.innerHTML = `
+      <button class="back-btn" onclick="showHistory()">← 履歴に戻る</button>
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px">
+        <span style="font-size:12px;color:var(--text-light)">${data.rounds?.length || 0}ラウンド</span>
+        <button onclick="delSession('${sid}')" style="background:none;border:1px solid #e88;color:#d44;padding:4px 12px;border-radius:8px;cursor:pointer;font-size:12px">削除</button>
+      </div>
+      <div class="session-detail">${(data.rounds || []).map(r => `
+        <div class="round-block">
+          <div class="round-num">第${r.round_number}ラウンド · ${r.created_at?.slice(0,19).replace('T',' ')}</div>
+          <div class="user-msg">👤 ${escapeHtml(r.user_message)}</div>
+          <div class="sakura-msg">🌸 ${escapeHtml(r.sakura_reply)}</div>
+          ${r.translation ? `<div class="trans-msg">📝 ${escapeHtml(r.translation)}</div>` : ''}
+        </div>
+      `).join('')}</div>`;
+  } catch (e) {
+    body.innerHTML = '<div style="color:red">読み込みエラー</div>';
+  }
+}
+
+async function delSession(sid) {
+  if (!confirm('この会話を削除しますか？')) return;
+  await fetch('/v1/langgraph/logs/' + sid, { method: 'DELETE' });
+  showHistory();
+}
+
+function closeHistory() {
+  document.getElementById('historyModal').classList.remove('show');
+}
+
+// 点击 overlay 关闭
+document.getElementById('historyModal').addEventListener('click', function(e) {
+  if (e.target === this) closeHistory();
+});
+</script>
+</body>
+</html>

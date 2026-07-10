@@ -1,0 +1,27 @@
+# 敏感文件
+.env
+*.db
+
+# 缓存
+__pycache__/
+*.pyc
+*.log
+
+# 临时文件
+test_results.jsonl
+bilingual.log
+ui.log
+voice.log
+server.log
+
+# IDE
+.vscode/
+.idea/
+
+# 数据（另仓管理）
+training_data/
+training_data_cn/
+dialogs/
+
+# 压缩包
+*.zip

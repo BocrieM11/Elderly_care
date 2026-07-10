@@ -1,0 +1,13 @@
+# === 陪伴服务 (:8015) ===
+fastapi>=0.100
+uvicorn[standard]
+openai>=1.0
+langgraph>=0.2
+pydantic>=2.0
+python-dotenv>=1.0
+
+# === 推理服务 (:8014) ===
+torch>=2.0
+transformers>=4.40
+accelerate>=0.20
+bitsandbytes>=0.41

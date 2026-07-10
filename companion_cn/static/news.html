@@ -1,0 +1,160 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>新闻浏览 — 养老陪伴</title>
+<style>
+  :root {
+    --bg: #faf7f2; --accent: #c97a5e; --text: #3d302b;
+    --border: #e8e0d5; --radius: 12px;
+  }
+  * { margin:0; padding:0; box-sizing:border-box; }
+  body { font-family: "Microsoft YaHei", sans-serif; background: var(--bg); color: var(--text); }
+  header {
+    background: #fff; padding: 14px 28px; border-bottom: 1px solid var(--border);
+    display: flex; align-items: center; gap: 12px;
+  }
+  header h1 { font-size: 18px; }
+  header a { color: var(--accent); text-decoration: none; font-size: 13px; }
+  main { max-width: 960px; margin: 0 auto; padding: 20px; }
+  .filters {
+    display: flex; gap: 10px; margin-bottom: 20px; flex-wrap: wrap; align-items: center;
+  }
+  .filters select, .filters input, .filters button {
+    padding: 8px 14px; border: 1px solid var(--border); border-radius: 20px;
+    font-size: 13px; outline: none; font-family: inherit;
+  }
+  .filters button {
+    background: var(--accent); color: #fff; cursor: pointer; border: none;
+    padding: 8px 20px;
+  }
+  .filters button:hover { opacity: .9; }
+  .stats { font-size: 12px; color: #999; margin-bottom: 16px; }
+  .article {
+    background: #fff; border: 1px solid var(--border); border-radius: var(--radius);
+    padding: 16px 20px; margin-bottom: 12px;
+  }
+  .article .source {
+    display: inline-block; font-size: 11px; padding: 2px 10px;
+    border-radius: 10px; background: #f5d5c8; color: var(--accent);
+    margin-right: 8px; font-weight: 600;
+  }
+  .article .country {
+    display: inline-block; font-size: 11px; padding: 2px 10px;
+    border-radius: 10px; background: #d5e0f0; color: #4a6fa5;
+    margin-right: 8px;
+  }
+  .article .title { font-size: 15px; font-weight: 600; margin: 6px 0; }
+  .article .summary { font-size: 13px; color: #666; line-height: 1.6; }
+  .article .url {
+    font-size: 11px; color: #aaa; margin-top: 8px; word-break: break-all;
+  }
+  .article .url a { color: var(--accent); }
+  .empty { text-align: center; padding: 60px; color: #999; }
+  .badge { font-size: 10px; padding: 2px 8px; border-radius: 8px; margin-left: 4px; }
+  .badge.real { background: #d4edda; color: #155724; }
+  .loading { text-align: center; padding: 40px; color: #999; }
+</style>
+</head>
+<body>
+
+<header>
+  <h1>新闻知识库</h1>
+  <a href="/">← 返回聊天</a>
+</header>
+
+<main>
+  <div class="filters">
+    <select id="countryFilter" onchange="loadNews()">
+      <option value="">所有国家</option>
+    </select>
+    <select id="sourceFilter" onchange="loadNews()">
+      <option value="">所有来源</option>
+    </select>
+    <button onclick="loadNews()">刷新</button>
+    <span style="flex:1"></span>
+    <span class="stats" id="stats"></span>
+  </div>
+  <div id="list"><div class="loading">加载中...</div></div>
+</main>
+
+<script>
+const API = '/v1/langgraph/news';
+let allCountries = new Set();
+let allSources = new Set();
+
+async function loadNews() {
+  const list = document.getElementById('list');
+  list.innerHTML = '<div class="loading">加载中...</div>';
+
+  const country = document.getElementById('countryFilter').value;
+  const source = document.getElementById('sourceFilter').value;
+  const params = new URLSearchParams({ limit: 100 });
+  if (country) params.set('country', country);
+  if (source) params.set('source', source);
+
+  try {
+    const r = await fetch(API + '?' + params);
+    const data = await r.json();
+    if (!data.ok) {
+      list.innerHTML = `<div class="empty">${data.error || '暂无数据'}</div>`;
+      return;
+    }
+    document.getElementById('stats').textContent = `共 ${data.count} 条`;
+
+    // Update filters
+    data.articles.forEach(a => {
+      if (a.country) allCountries.add(a.country);
+      if (a.source) allSources.add(a.source);
+    });
+    updateFilters();
+
+    if (data.articles.length === 0) {
+      list.innerHTML = '<div class="empty">暂无新闻。运行 python companion_cn/news_scraper.py --once 来抓取。</div>';
+      return;
+    }
+
+    list.innerHTML = data.articles.map(a => `
+      <div class="article">
+        <span class="source">${esc(a.source)}</span>
+        ${a.country ? `<span class="country">${esc(a.country)}</span>` : ''}
+        ${a.category ? `<span style="font-size:11px;color:#888">${esc(a.category)}</span>` : ''}
+        <span class="badge real">✓ 官方来源</span>
+        <div class="title">${esc(a.title)}</div>
+        ${a.summary ? `<div class="summary">${esc(a.summary)}</div>` : ''}
+        ${a.url ? `<div class="url">来源：<a href="${esc(a.url)}" target="_blank" rel="noopener">${esc(a.url)}</a></div>` : ''}
+        ${a.scraped_at ? `<div style="font-size:10px;color:#bbb;margin-top:2px">抓取时间：${esc(a.scraped_at.slice(0,19).replace('T',' '))}</div>` : ''}
+      </div>
+    `).join('');
+
+  } catch (e) {
+    list.innerHTML = `<div class="empty">加载失败：${e.message}</div>`;
+  }
+}
+
+function updateFilters() {
+  const cSel = document.getElementById('countryFilter');
+  const currentC = cSel.value;
+  cSel.innerHTML = '<option value="">所有国家</option>';
+  [...allCountries].sort().forEach(c => {
+    cSel.innerHTML += `<option value="${esc(c)}" ${c===currentC?'selected':''}>${esc(c)}</option>`;
+  });
+  const sSel = document.getElementById('sourceFilter');
+  const currentS = sSel.value;
+  sSel.innerHTML = '<option value="">所有来源</option>';
+  [...allSources].sort().forEach(s => {
+    sSel.innerHTML += `<option value="${esc(s)}" ${s===currentS?'selected':''}>${esc(s)}</option>`;
+  });
+}
+
+function esc(s) {
+  const d = document.createElement('div');
+  d.textContent = s || '';
+  return d.innerHTML;
+}
+
+loadNews();
+</script>
+</body>
+</html>
