@@ -25,7 +25,7 @@ from pydantic import BaseModel
 from typing import Optional, Literal
 from openai import OpenAI
 
-from .config import QWEN_URL, QWEN_MODEL, DEEPSEEK_KEY, DEEPSEEK_URL, DEEPSEEK_MODEL, USE_DEEPSEEK_GEN, DIALECT_STYLES
+from .config import QWEN_URL, QWEN_MODEL, QWEN_CHAT_TEMPLATE_KWARGS, DEEPSEEK_KEY, DEEPSEEK_URL, DEEPSEEK_MODEL, USE_DEEPSEEK_GEN, DIALECT_STYLES
 from .nodes import (
     input_guard, emotion_detect, memory_retrieve, context_assemble,
     generate_response, clean_and_remember,
@@ -51,7 +51,7 @@ class ChatCompletionRequest(BaseModel):
     model: str = "companion-cn"
     messages: list[ChatMessage]
     temperature: Optional[float] = None       # overridden by emotion detection
-    max_tokens: Optional[int] = 350
+    max_tokens: Optional[int] = 220
     stream: Optional[bool] = False
     user: Optional[str] = None                # maps to user_id
     # ── Companion-specific extensions ──
@@ -170,7 +170,10 @@ async def chat_completions(req: ChatCompletionRequest):
 
     stream_client = _ds_client if (USE_DEEPSEEK_GEN and _ds_client) else _model_client
     stream_model = DEEPSEEK_MODEL if (USE_DEEPSEEK_GEN and _ds_client) else QWEN_MODEL
-    extra = {} if (USE_DEEPSEEK_GEN and _ds_client) else {"repetition_penalty": params["repetition_penalty"]}
+    extra = {} if (USE_DEEPSEEK_GEN and _ds_client) else {
+        "repetition_penalty": params["repetition_penalty"],
+        "chat_template_kwargs": QWEN_CHAT_TEMPLATE_KWARGS,
+    }
 
     try:
         r = stream_client.chat.completions.create(
@@ -180,7 +183,7 @@ async def chat_completions(req: ChatCompletionRequest):
             top_p=params.get("top_p", 0.88),
             frequency_penalty=params.get("frequency_penalty", 0.1),
             presence_penalty=params.get("presence_penalty", 0.0),
-            max_tokens=req.max_tokens or 350,
+            max_tokens=min(req.max_tokens or 220, 220),
             extra_body=extra,
         )
         raw = r.choices[0].message.content or ""
@@ -227,7 +230,10 @@ async def chat_completions_stream(req: ChatCompletionRequest):
 
     stream_client = _ds_client if (USE_DEEPSEEK_GEN and _ds_client) else _model_client
     stream_model = DEEPSEEK_MODEL if (USE_DEEPSEEK_GEN and _ds_client) else QWEN_MODEL
-    extra = {} if (USE_DEEPSEEK_GEN and _ds_client) else {"repetition_penalty": params["repetition_penalty"]}
+    extra = {} if (USE_DEEPSEEK_GEN and _ds_client) else {
+        "repetition_penalty": params["repetition_penalty"],
+        "chat_template_kwargs": QWEN_CHAT_TEMPLATE_KWARGS,
+    }
 
     async def event_stream():
         full_response = ""
@@ -249,7 +255,7 @@ async def chat_completions_stream(req: ChatCompletionRequest):
                 top_p=params.get("top_p", 0.88),
                 frequency_penalty=params.get("frequency_penalty", 0.1),
                 presence_penalty=params.get("presence_penalty", 0.0),
-                max_tokens=req.max_tokens or 350,
+                max_tokens=min(req.max_tokens or 220, 220),
                 stream=True,
                 extra_body=extra,
             )

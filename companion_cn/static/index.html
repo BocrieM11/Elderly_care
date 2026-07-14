@@ -23,7 +23,8 @@
     font-family: "Microsoft YaHei", "PingFang SC", "Hiragino Sans GB", sans-serif;
     background: var(--bg);
     color: var(--text);
-    height: 100vh; display: flex; flex-direction: column;
+    height: 100vh; height: 100dvh; overflow: hidden;
+    display: flex; flex-direction: column;
   }
 
   header {
@@ -31,6 +32,7 @@
     display: flex; align-items: center; gap: 14px;
     border-bottom: 1px solid var(--border);
     box-shadow: 0 1px 4px rgba(0,0,0,.03);
+    flex: 0 0 auto;
   }
   header .avatar {
     width: 46px; height: 46px; border-radius: 50%;
@@ -54,16 +56,77 @@
   .dialect-selector select:focus { border-color: var(--accent); }
 
   main {
-    display: flex; flex: 1; overflow: hidden;
+    display: grid;
+    grid-template-columns: minmax(280px, 360px) minmax(420px, 1fr) minmax(250px, 310px);
+    flex: 1 1 0; height: 0; min-height: 0; overflow: hidden;
+    background: #f6f2ec;
   }
-  .chat-panel {
-    flex: 2; display: flex; flex-direction: column;
+  .video-panel {
+    padding: 20px 16px;
+    background: #fffaf5;
+    border-right: 1px solid var(--border);
+    display: flex;
+    flex-direction: column;
+    gap: 14px;
     min-width: 0;
   }
+  .video-heading { display:flex; align-items:center; justify-content:space-between; gap:8px; }
+  .video-heading h2 { font-size:16px; font-weight:600; }
+  .video-status { font-size:11px; color:#7d746b; background:#f2e9df; border-radius:999px; padding:4px 8px; white-space:nowrap; }
+  .video-stage {
+    position: relative; overflow: hidden; aspect-ratio: 4 / 5;
+    min-height: 260px; border-radius: 20px;
+    background: linear-gradient(145deg, #4e565d, #24282d);
+    box-shadow: 0 8px 22px rgba(62, 48, 42, .16);
+  }
+  .video-stage video { width:100%; height:100%; object-fit:cover; display:block; background:#24282d; }
+  .video-placeholder { position:absolute; inset:0; display:flex; align-items:center; justify-content:center; flex-direction:column; gap:12px; color:#fff; text-align:center; padding:24px; pointer-events:none; background:linear-gradient(180deg, rgba(0,0,0,.08), rgba(0,0,0,.3)); }
+  .video-placeholder .camera-icon { width:58px; height:58px; border-radius:50%; display:grid; place-items:center; background:rgba(255,255,255,.18); font-size:26px; }
+  .video-placeholder strong { font-size:16px; }
+  .video-placeholder span { font-size:13px; line-height:1.6; color:rgba(255,255,255,.82); }
+  .video-note { border:1px dashed #dccfc2; border-radius:14px; background:#fff; padding:12px 14px; color:var(--text-light); font-size:12px; line-height:1.65; }
+  .video-note b { display:block; color:var(--text); margin-bottom:3px; font-size:13px; }
+  .reminder-center-button { display:inline-flex; align-items:center; gap:5px; background:#fff; border:1px solid var(--border); padding:5px 10px; border-radius:14px; font-size:12px; color:var(--accent); cursor:pointer; font-family:inherit; }
+  .reminder-badge { display:none; min-width:16px; padding:0 4px; border-radius:9px; background:#d66b55; color:#fff; font-size:10px; line-height:16px; text-align:center; }
+  .reminder-modal { position:fixed; inset:0; z-index:1200; display:none; align-items:center; justify-content:center; padding:20px; background:rgba(57,43,36,.38); }
+  .reminder-card { width:min(420px, 100%); border-radius:24px; background:#fffdfa; padding:26px; text-align:center; box-shadow:0 16px 48px rgba(48,35,27,.25); }
+  .reminder-bell { width:58px; height:58px; display:grid; place-items:center; margin:0 auto 14px; border-radius:50%; background:#fff0e8; font-size:28px; }
+  .reminder-card h2 { font-size:20px; margin-bottom:10px; }
+  .reminder-card p { color:var(--text-light); font-size:15px; line-height:1.7; margin-bottom:20px; word-break:break-word; }
+  .reminder-actions { display:grid; grid-template-columns:1fr 1fr; gap:10px; }
+  .reminder-actions button { border:0; border-radius:14px; padding:13px 10px; font:inherit; font-size:15px; cursor:pointer; }
+  .reminder-complete { background:var(--accent); color:#fff; }
+  .reminder-snooze { background:#f4ede6; color:var(--text); }
+  .reminder-dismiss { grid-column:1 / -1; background:transparent; color:var(--text-light); font-size:13px !important; padding:7px !important; }
+  .reminder-confirm { background:var(--accent); color:#fff; }
+  .reminder-cancel { background:#f4ede6; color:var(--text); }
+  .reminder-center-card { width:min(580px, 100%); max-height:min(78vh, 680px); display:flex; flex-direction:column; border-radius:22px; overflow:hidden; background:#fffdfa; box-shadow:0 16px 48px rgba(48,35,27,.25); }
+  .reminder-center-header { padding:20px 22px 14px; display:flex; align-items:center; justify-content:space-between; border-bottom:1px solid var(--border); }
+  .reminder-center-header h2 { font-size:19px; }
+  .reminder-center-header button { border:0; background:none; color:var(--text-light); cursor:pointer; font-size:22px; }
+  .reminder-list { padding:10px 16px 18px; overflow-y:auto; }
+  .reminder-item { padding:14px 12px; border-bottom:1px solid #f0e8df; display:grid; grid-template-columns:1fr auto; gap:8px; }
+  .reminder-item:last-child { border-bottom:0; }
+  .reminder-item-title { font-size:15px; font-weight:600; margin-bottom:4px; }
+  .reminder-item-meta { color:var(--text-light); font-size:12px; line-height:1.55; }
+  .reminder-state { align-self:start; border-radius:999px; padding:4px 8px; font-size:11px; white-space:nowrap; }
+  .reminder-state.active { background:#eaf3ea; color:#487452; }
+  .reminder-state.notified { background:#fff0e8; color:#b76445; }
+  .reminder-state.completed { background:#edf1f4; color:#607080; }
+  .reminder-state.pending_confirmation { background:#f6efe4; color:#8c7048; }
+  .reminder-state.cancelled { background:#f1f1f1; color:#777; }
+  .reminder-empty { padding:40px 18px; text-align:center; color:var(--text-light); font-size:14px; }
+  .chat-panel {
+    display: flex; flex-direction: column;
+    min-width: 0; min-height: 0; height: 100%; max-height: 100%;
+    background: #fffdf9;
+  }
   .messages {
-    flex: 1; overflow-y: auto; padding: 24px 28px;
+    flex: 1 1 0; height: 0; overflow-y: auto; padding: 24px 28px;
     display: flex; flex-direction: column; gap: 14px;
-    scroll-behavior: smooth;
+    min-height: 0; scroll-behavior: smooth;
+    overscroll-behavior: contain; -webkit-overflow-scrolling: touch;
+    touch-action: pan-y;
   }
   .msg-row {
     display: flex; gap: 10px; max-width: 85%;
@@ -154,7 +217,8 @@
   .input-area {
     padding: 16px 28px 22px;
     background: #fff; border-top: 1px solid var(--border);
-    display: flex; gap: 10px;
+    display: flex; gap: 10px; flex: 0 0 auto;
+    position: relative; z-index: 2;
   }
   .input-area input {
     flex: 1; padding: 12px 18px;
@@ -175,10 +239,10 @@
 
   /* Log panel */
   .log-panel {
-    flex: 1; min-width: 260px; max-width: 340px;
+    min-width: 0;
     background: var(--panel-bg);
     border-left: 1px solid var(--border);
-    display: flex; flex-direction: column;
+    display: flex; flex-direction: column; min-height: 0;
   }
   .log-header {
     padding: 16px 20px;
@@ -196,7 +260,7 @@
   }
   .log-header button:hover { background: #f0e8e0; }
   .log-list {
-    flex: 1; overflow-y: auto; padding: 8px 0;
+    flex: 1 1 0; min-height:0; overflow-y: auto; padding: 8px 0;
   }
   .log-item {
     padding: 12px 20px; cursor: pointer;
@@ -239,8 +303,21 @@
     to { opacity: 1; transform: translateY(0); }
   }
 
-  @media (max-width: 760px) {
+  @media (max-width: 1050px) {
+    main { grid-template-columns: minmax(250px, 320px) minmax(0, 1fr); }
     .log-panel { display: none; }
+  }
+  @media (max-width: 760px) {
+    header { padding: 10px 14px; gap: 8px; }
+    header .sub, .dialect-selector label, #notificationButton { display:none; }
+    main { display:flex; flex-direction:column; height:0; overflow-y:auto; overflow-x:hidden; }
+    .video-panel { padding:12px 14px; border-right:0; border-bottom:1px solid var(--border); }
+    .video-stage { aspect-ratio:16/8; min-height:150px; }
+    .video-note { display:none; }
+    .chat-panel { min-height:55vh; height:auto; max-height:none; flex:1 0 auto; }
+    .log-panel { display: none; }
+    .messages { height:auto; padding:16px; min-height:280px; max-height:58vh; overflow-y:auto; }
+    .input-area { padding:12px 14px 16px; }
   }
 </style>
 </head>
@@ -253,22 +330,36 @@
     <div class="sub">耐心倾听 · 真诚回应 · 像老朋友一样</div>
   </div>
   <div class="dialect-selector">
+    <a href="/news.html" style="color:var(--accent);text-decoration:none;margin-right:8px;font-size:13px">新闻</a>
+    <button id="reminderCenterButton" class="reminder-center-button" type="button" onclick="showReminderCenter()">🔔 提醒 <span class="reminder-badge" id="reminderBadge">0</span></button>
+    <button id="notificationButton" type="button" onclick="enableReminderNotifications()" style="background:#fff;border:1px solid var(--border);padding:5px 10px;border-radius:14px;font-size:12px;color:var(--accent);cursor:pointer;font-family:inherit">开启提醒通知</button>
     <label for="dialectSelect">口语风格</label>
     <select id="dialectSelect" onchange="onDialectChange()"></select>
   </div>
 </header>
 
 <main>
-  <div class="chat-panel">
-    <div class="messages" id="messages">
-      <div class="msg-row li">
-        <div class="msg-avatar">💛</div>
-        <div>
-          <div class="msg-bubble">你好呀。今天感觉怎么样？有什么想聊的都可以跟我说。</div>
-          <div class="msg-time">现在</div>
-        </div>
+  <aside class="video-panel" aria-label="视频通话区域">
+    <div class="video-heading">
+      <h2>视频陪伴</h2>
+      <span class="video-status" id="videoStatus">摄像头待接入</span>
+    </div>
+    <div class="video-stage" id="videoStage">
+      <!-- 后续视频模块将把 MediaStream 绑定到 companionVideo.srcObject。 -->
+      <video id="companionVideo" autoplay playsinline muted></video>
+      <div class="video-placeholder" id="videoPlaceholder">
+        <div class="camera-icon">📹</div>
+        <strong>视频画面会显示在这里</strong>
+        <span>后续开启摄像头后，可在此显示实时画面。</span>
       </div>
     </div>
+    <div class="video-note">
+      <b>视频尚未开启</b>
+      这里已预留真实视频元素和画面状态。接入摄像头后，不需要再改聊天布局。
+    </div>
+  </aside>
+  <div class="chat-panel">
+    <div class="messages" id="messages"></div>
     <div class="input-area">
       <input id="msgInput" type="text" placeholder="随便聊聊吧…" autocomplete="off">
       <button id="sendBtn" onclick="send()">发送</button>
@@ -292,6 +383,41 @@
   </div>
 </main>
 
+<div class="reminder-modal" id="reminderModal" role="dialog" aria-modal="true" aria-labelledby="reminderTitle">
+  <div class="reminder-card">
+    <div class="reminder-bell">🔔</div>
+    <h2 id="reminderTitle">时间到了</h2>
+    <p id="reminderText"></p>
+    <div class="reminder-actions">
+      <button class="reminder-complete" onclick="completeReminderFromModal()">我已完成</button>
+      <button class="reminder-snooze" onclick="snoozeReminderFromModal()">10分钟后提醒</button>
+      <button class="reminder-dismiss" onclick="hideReminderModal()">暂时关闭（仍保留提醒）</button>
+    </div>
+  </div>
+</div>
+
+<div class="reminder-modal" id="reminderConfirmModal" role="dialog" aria-modal="true" aria-labelledby="reminderConfirmTitle">
+  <div class="reminder-card">
+    <div class="reminder-bell">⏰</div>
+    <h2 id="reminderConfirmTitle">确认设置提醒</h2>
+    <p id="reminderConfirmText"></p>
+    <div class="reminder-actions">
+      <button class="reminder-confirm" onclick="confirmReminderFromModal()">确认设置</button>
+      <button class="reminder-cancel" onclick="cancelPendingReminderFromModal()">暂不设置</button>
+    </div>
+  </div>
+</div>
+
+<div class="reminder-modal" id="reminderCenterModal" role="dialog" aria-modal="true" aria-labelledby="reminderCenterTitle">
+  <div class="reminder-center-card">
+    <div class="reminder-center-header">
+      <h2 id="reminderCenterTitle">提醒记录</h2>
+      <button type="button" onclick="hideReminderCenter()" aria-label="关闭">×</button>
+    </div>
+    <div class="reminder-list" id="reminderList"><div class="reminder-empty">正在加载提醒记录…</div></div>
+  </div>
+</div>
+
 <!-- 历史记录 -->
 <div class="modal-overlay" id="historyModal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.4);z-index:1000;justify-content:center;align-items:center">
   <div style="background:#fff;border-radius:16px;width:90%;max-width:700px;max-height:80vh;display:flex;flex-direction:column;box-shadow:0 8px 40px rgba(0,0,0,.15)">
@@ -311,6 +437,226 @@ let roundNum = 0;
 let rounds = [];
 let messages = [];
 let currentDialect = localStorage.getItem('dialect') || 'northern';
+// A browser-local anonymous ID keeps long-term memory separate for different
+// visitors on the same deployment.  It is not a substitute for real login.
+let userId = localStorage.getItem('companion_user_id');
+if (!userId) {
+  const randomPart = window.crypto?.randomUUID
+    ? window.crypto.randomUUID()
+    : Date.now().toString(36) + Math.random().toString(36).slice(2);
+  userId = 'web_' + randomPart;
+  localStorage.setItem('companion_user_id', userId);
+}
+
+const shownReminderIds = new Set();
+let activeReminder = null;
+let pendingReminder = null;
+let reminderModalTimer = null;
+let reminderCenterOpen = false;
+
+function updateNotificationButton() {
+  const button = document.getElementById('notificationButton');
+  if (!button || !window.Notification) {
+    if (button) button.style.display = 'none';
+    return;
+  }
+  const permission = Notification.permission;
+  button.textContent = permission === 'granted' ? '提醒通知已开启' :
+    permission === 'denied' ? '浏览器已禁用通知' : '开启提醒通知';
+  button.disabled = permission !== 'default';
+}
+
+async function enableReminderNotifications() {
+  if (!window.Notification) return;
+  try {
+    await Notification.requestPermission();
+  } finally {
+    updateNotificationButton();
+  }
+}
+
+function playReminderTone() {
+  // A short local tone does not depend on any music service. Browsers may
+  // suppress it until the person has interacted with the page at least once.
+  try {
+    const AudioContext = window.AudioContext || window.webkitAudioContext;
+    const context = new AudioContext();
+    const oscillator = context.createOscillator();
+    const gain = context.createGain();
+    oscillator.frequency.value = 880;
+    gain.gain.setValueAtTime(0.0001, context.currentTime);
+    gain.gain.exponentialRampToValueAtTime(0.12, context.currentTime + 0.03);
+    gain.gain.exponentialRampToValueAtTime(0.0001, context.currentTime + 0.8);
+    oscillator.connect(gain).connect(context.destination);
+    oscillator.start();
+    oscillator.stop(context.currentTime + 0.85);
+  } catch (e) {}
+}
+
+function showReminderModal(reminder) {
+  if (reminderModalTimer) clearTimeout(reminderModalTimer);
+  activeReminder = reminder;
+  document.getElementById('reminderText').textContent = '提醒您：' + reminder.content;
+  document.getElementById('reminderModal').style.display = 'flex';
+  // Do not leave an unattended modal on screen. If it is not acted on in
+  // 30 seconds, preserve the reminder and offer it again in five minutes.
+  reminderModalTimer = setTimeout(() => {
+    if (activeReminder && activeReminder.id === reminder.id) {
+      reminderAction('snooze', { minutes: 5 }, true);
+    }
+  }, 30000);
+}
+
+function hideReminderModal() {
+  if (reminderModalTimer) clearTimeout(reminderModalTimer);
+  reminderModalTimer = null;
+  document.getElementById('reminderModal').style.display = 'none';
+  activeReminder = null;
+}
+
+function showReminderConfirmModal(reminder) {
+  pendingReminder = reminder;
+  const due = reminder.due_at ? new Date(reminder.due_at).toLocaleString('zh-CN', { hour: '2-digit', minute: '2-digit', month: 'numeric', day: 'numeric' }) : '';
+  document.getElementById('reminderConfirmText').textContent = (due ? due + '，' : '') + '提醒您：' + reminder.content;
+  document.getElementById('reminderConfirmModal').style.display = 'flex';
+}
+
+function hideReminderConfirmModal() {
+  document.getElementById('reminderConfirmModal').style.display = 'none';
+  pendingReminder = null;
+}
+
+async function confirmReminderFromModal() {
+  if (!pendingReminder) return;
+  const reminder = pendingReminder;
+  try {
+    const response = await fetch('/v1/langgraph/reminders/' + reminder.id + '/confirm', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ user_id: userId }),
+    });
+    const data = await response.json();
+    if (!response.ok || !data.ok) throw new Error('confirmation failed');
+    hideReminderConfirmModal();
+    addBubble('li', escapeHtml('已经设置好提醒。'), 'li');
+    scrollDown();
+  } catch (e) {
+    document.getElementById('reminderConfirmText').textContent = '设置没有完成，请稍后再试。';
+  }
+}
+
+async function cancelPendingReminderFromModal() {
+  if (!pendingReminder) return;
+  const reminder = pendingReminder;
+  try {
+    await fetch('/v1/langgraph/reminders/' + reminder.id + '?user_id=' + encodeURIComponent(userId), { method: 'DELETE' });
+    hideReminderConfirmModal();
+    addBubble('li', escapeHtml('好，这条提醒没有设置。'), 'li');
+    scrollDown();
+  } catch (e) {}
+}
+
+async function reminderAction(action, body = {}, automatic = false) {
+  if (!activeReminder) return;
+  const reminder = activeReminder;
+  try {
+    const response = await fetch('/v1/langgraph/reminders/' + reminder.id + '/' + action, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ user_id: userId, ...body }),
+    });
+    if (!response.ok) throw new Error('reminder action failed');
+    hideReminderModal();
+    if (action === 'snooze') shownReminderIds.delete(reminder.id);
+    const minutes = body.minutes || 10;
+    const text = action === 'complete' ? '好，这条提醒已经标为完成。' :
+      automatic ? `这条提醒暂时没有处理，我会在${minutes}分钟后再提醒您。` : `好，${minutes}分钟后再提醒您。`;
+    addBubble('li', escapeHtml(text), 'li');
+    scrollDown();
+  } catch (e) {
+    document.getElementById('reminderText').textContent = '操作没有完成，请稍后再试。';
+  }
+}
+
+function completeReminderFromModal() { return reminderAction('complete'); }
+function snoozeReminderFromModal() { return reminderAction('snooze', { minutes: 10 }); }
+
+function reminderStateLabel(status) {
+  return ({ pending_confirmation: '等待确认', active: '等待提醒', notified: '等待处理', completed: '已完成', cancelled: '已取消' })[status] || status;
+}
+
+function reminderTiming(reminder) {
+  const due = new Date(reminder.due_at);
+  if (reminder.status === 'active') {
+    const minutes = Math.ceil((due.getTime() - Date.now()) / 60000);
+    if (minutes <= 0) return '即将提醒';
+    if (minutes < 60) return `还剩约${minutes}分钟`;
+    const hours = Math.floor(minutes / 60);
+    return `还剩约${hours}小时${minutes % 60}分钟`;
+  }
+  if (reminder.status === 'notified') return '已到提醒时间，等待处理';
+  if (reminder.status === 'completed') return '已处理并完成';
+  if (reminder.status === 'pending_confirmation') return '尚未确认，不会提醒';
+  return '已取消';
+}
+
+function renderReminderCenter(reminders) {
+  const list = document.getElementById('reminderList');
+  if (!reminders.length) {
+    list.innerHTML = '<div class="reminder-empty">目前没有提醒记录。</div>';
+    return;
+  }
+  list.innerHTML = reminders.map(reminder => {
+    const due = new Date(reminder.due_at).toLocaleString('zh-CN', { month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit' });
+    return `<div class="reminder-item"><div><div class="reminder-item-title">${escapeHtml(reminder.content)}</div><div class="reminder-item-meta">${due} · ${reminderTiming(reminder)}</div></div><span class="reminder-state ${escapeHtml(reminder.status)}">${reminderStateLabel(reminder.status)}</span></div>`;
+  }).join('');
+}
+
+async function refreshReminderCenter() {
+  try {
+    const response = await fetch('/v1/langgraph/reminders/' + encodeURIComponent(userId) + '?include_finished=true');
+    if (!response.ok) return;
+    const data = await response.json();
+    const reminders = data.reminders || [];
+    const pending = reminders.filter(item => item.status === 'notified').length;
+    const badge = document.getElementById('reminderBadge');
+    badge.textContent = pending;
+    badge.style.display = pending ? 'inline-block' : 'none';
+    if (reminderCenterOpen) renderReminderCenter(reminders);
+  } catch (e) {}
+}
+
+function showReminderCenter() {
+  reminderCenterOpen = true;
+  document.getElementById('reminderCenterModal').style.display = 'flex';
+  refreshReminderCenter();
+}
+
+function hideReminderCenter() {
+  reminderCenterOpen = false;
+  document.getElementById('reminderCenterModal').style.display = 'none';
+}
+
+async function pollReminders() {
+  try {
+    const r = await fetch('/v1/langgraph/reminders/' + encodeURIComponent(userId) + '/due');
+    if (!r.ok) return;
+    const data = await r.json();
+    for (const reminder of (data.reminders || [])) {
+      if (shownReminderIds.has(reminder.id)) continue;
+      shownReminderIds.add(reminder.id);
+      const text = '提醒您：' + reminder.content;
+      addBubble('li', escapeHtml(text), 'li');
+      playReminderTone();
+      showReminderModal(reminder);
+      const oldTitle = document.title;
+      document.title = '🔔 ' + text;
+      setTimeout(() => { document.title = oldTitle; }, 10000);
+      if (window.Notification && Notification.permission === 'granted') {
+        new Notification('暖暖陪伴提醒', { body: reminder.content });
+      }
+      scrollDown();
+    }
+  } catch (e) {}
+}
 
 const EMOTION_EMOJI = {
   joy: '😊', sadness: '😢', loneliness: '🥺', anxiety: '😰',
@@ -434,16 +780,21 @@ async function send() {
       body: JSON.stringify({
         message: text,
         messages: messages,
-        user_id: 'web_user',
+        user_id: userId,
         session_id: sessionId,
         dialect: currentDialect,
       }),
     });
+    if (!res.ok || !res.body) {
+      throw new Error(`聊天服务暂时不可用（${res.status}）`);
+    }
 
     const reader = res.body.getReader();
     const decoder = new TextDecoder();
     let reply = '';
     let finalEmotion = null;
+    let newsContext = null;
+    let reminderContext = null;
 
     while (true) {
       const { done, value } = await reader.read();
@@ -461,6 +812,8 @@ async function send() {
           }
           if (c.done) {
             finalEmotion = c.emotion || null;
+            newsContext = c.news || null;
+            reminderContext = c.reminder || null;
           }
         } catch (e) {}
       }
@@ -468,12 +821,17 @@ async function send() {
 
     if (!reply) reply = '（网络不太稳，再试一次…）';
     messages.push({ role: 'assistant', content: reply });
+    if (reminderContext && reminderContext.requires_confirmation) {
+      showReminderConfirmModal(reminderContext);
+    }
+    if (newsContext && Array.isArray(newsContext.article_ids) && newsContext.article_ids.length) {
+      localStorage.setItem('companion_last_news_call', JSON.stringify(newsContext));
+    }
 
-    // Emotion emoji badge + reply
+    // Emotion stays an internal aid for the animation; a percentage can feel
+    // like a diagnosis and is not shown to the person being accompanied.
     if (finalEmotion && finalEmotion.primary) {
-      const emoji = EMOTION_EMOJI[finalEmotion.primary] || '💛';
-      const intensity = finalEmotion.intensity ? Math.round(finalEmotion.intensity * 100) : '';
-      bubble.innerHTML = `<span class="emotion-badge ${finalEmotion.primary}">${emoji} ${intensity}%</span> ${escapeHtml(reply)}`;
+      bubble.textContent = reply;
     } else {
       bubble.textContent = reply;
     }
@@ -548,13 +906,7 @@ function loadLog() {
         msgDiv.appendChild(uRow);
         const sRow = document.createElement('div');
         sRow.className = 'msg-row li';
-        let replyHtml = escapeHtml(r.reply);
-        if (r.emotion && r.emotion.primary) {
-          const emoji = EMOTION_EMOJI[r.emotion.primary] || '💛';
-          const intensity = r.emotion.intensity ? Math.round(r.emotion.intensity * 100) : '';
-          replyHtml = `<span class="emotion-badge ${r.emotion.primary}">${emoji} ${intensity}%</span> ${replyHtml}`;
-        }
-        sRow.innerHTML = `<div class="msg-avatar">💛</div><div><div class="msg-bubble">${replyHtml}</div><div class="msg-time">${r.time}</div></div>`;
+        sRow.innerHTML = `<div class="msg-avatar">💛</div><div><div class="msg-bubble">${escapeHtml(r.reply)}</div><div class="msg-time">${r.time}</div></div>`;
         msgDiv.appendChild(sRow);
         messages.push({ role: 'user', content: r.user });
         messages.push({ role: 'assistant', content: r.reply });
@@ -604,10 +956,14 @@ input.addEventListener('keydown', e => {
 
 if (!loadLog()) {
   messages = [];
-  msgDiv.innerHTML = '';
 }
 input.focus();
 fetchDialects();
+updateNotificationButton();
+pollReminders();
+setInterval(pollReminders, 15000);
+refreshReminderCenter();
+setInterval(refreshReminderCenter, 30000);
 
 // ====== 历史记录 ======
 async function showHistory() {

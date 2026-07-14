@@ -1,0 +1,16 @@
+# 养老陪伴 (Companion CN) 依赖
+# 安装: pip install -r requirements.txt
+
+fastapi>=0.100
+uvicorn>=0.22
+openai>=1.0
+python-dotenv
+langgraph>=1.0
+pydantic
+
+# 新闻爬虫 (news_scraper.py 需要)
+requests
+beautifulsoup4
+lxml
+feedparser
+python-dateutil

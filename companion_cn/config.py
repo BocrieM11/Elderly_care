@@ -4,8 +4,12 @@ from dotenv import load_dotenv
 
 load_dotenv(os.path.join(os.path.dirname(__file__), "..", ".env"))
 
-QWEN_URL = "http://192.168.253.91:8003/v1"
-QWEN_MODEL = "/model"
+# Qwen 3.5 4B (OpenAI-compatible vLLM endpoint)
+QWEN_URL = "http://192.168.253.95:8013/v1"
+QWEN_MODEL = "qwen35-4b"
+# The 4B deployment defaults to visible reasoning.  Companion replies should
+# be concise and conversational, so disable it through vLLM's chat template.
+QWEN_CHAT_TEMPLATE_KWARGS = {"enable_thinking": False}
 
 DEEPSEEK_KEY = os.getenv("DEEPSEEK_API_KEY", "")
 DEEPSEEK_URL = "https://api.deepseek.com"
@@ -15,8 +19,13 @@ DEEPSEEK_MODEL = "deepseek-chat"
 USE_DEEPSEEK_GEN = os.getenv("USE_DEEPSEEK_GEN", "").lower() in ("1", "true", "yes")
 
 DB_PATH = os.path.join(os.path.dirname(__file__), "..", "arrowcanaria_server", "chat_logs.db")
+# User-controlled memories and reminders must be writable by this service.
+# Keep them separate from legacy shared chat logs, whose directory may be
+# mounted read-only in deployments.
+STATE_DB_PATH = os.path.join(os.path.dirname(__file__), "data", "companion_state.db")
 
-MAX_CONTEXT = 6
+# A compact history keeps the 4B model focused and improves first-token latency.
+MAX_CONTEXT = 4
 PORT = 8016
 DEFAULT_CITY = "北京"              # default city for weather queries
 

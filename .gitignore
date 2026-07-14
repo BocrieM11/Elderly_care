@@ -25,3 +25,6 @@ dialogs/
 
 # 压缩包
 *.zip
+
+# 虚拟环境
+.venv/

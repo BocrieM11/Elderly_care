@@ -14,11 +14,19 @@ from openai import OpenAI
 from dotenv import load_dotenv
 from .graph import graph
 from .state import GraphState
-from .config import QWEN_URL, QWEN_MODEL, DEEPSEEK_KEY, DEEPSEEK_URL, DEEPSEEK_MODEL, USE_DEEPSEEK_GEN, DIALECT_STYLES, DEFAULT_CITY
+from .config import QWEN_URL, QWEN_MODEL, QWEN_CHAT_TEMPLATE_KWARGS, DEEPSEEK_KEY, DEEPSEEK_URL, DEEPSEEK_MODEL, USE_DEEPSEEK_GEN, DIALECT_STYLES, DEFAULT_CITY
 from .nodes import (
     input_guard, emotion_detect, memory_retrieve, tool_detect, context_assemble,
     generate_response, clean_and_remember,
     EMOTION_PARAMS, FALLBACKS,
+)
+from .tools import format_current_official_answer
+from .memory import list_facts, add_fact, delete_fact, clear_facts
+from .reminders import (
+    TZ, create_pending, activate_reminder, list_reminders, notified_reminders,
+    complete_reminder as complete_reminder_by_id,
+    snooze_reminder as snooze_reminder_by_id,
+    cancel_reminder,
 )
 
 load_dotenv(os.path.join(os.path.dirname(__file__), "..", ".env"))
@@ -74,6 +82,23 @@ class ChatResponse(BaseModel):
     facts_used: list[str]
 
 
+class MemoryCreateRequest(BaseModel):
+    user_id: str
+    fact: str
+
+
+class ReminderCreateRequest(BaseModel):
+    user_id: str
+    content: str
+    due_at: datetime
+    repeat_rule: str = ""
+
+
+class ReminderActionRequest(BaseModel):
+    user_id: str
+    minutes: int = 10
+
+
 @router.post("/chat", response_model=ChatResponse)
 async def chat(req: ChatRequest):
     sid = req.session_id or uuid.uuid4().hex[:12]
@@ -127,6 +152,74 @@ async def profile(user_id: str):
     }
 
 
+@router.get("/memories/{user_id}")
+async def memories(user_id: str):
+    return {"user_id": user_id, "memories": list_facts(user_id)}
+
+
+@router.post("/memories")
+async def create_memory(req: MemoryCreateRequest):
+    fact = req.fact.strip()
+    if not fact:
+        return {"ok": False, "error": "fact is required"}
+    add_fact(req.user_id, fact, "user_confirmed")
+    return {"ok": True, "fact": fact}
+
+
+@router.delete("/memories/{user_id}/{fact_id}")
+async def remove_memory(user_id: str, fact_id: int):
+    return {"ok": delete_fact(user_id, fact_id)}
+
+
+@router.delete("/memories/{user_id}")
+async def remove_all_memories(user_id: str, confirm: bool = False):
+    if not confirm:
+        return {"ok": False, "error": "confirm=true is required"}
+    return {"ok": True, "deleted": clear_facts(user_id)}
+
+
+@router.get("/reminders/{user_id}")
+async def reminders(user_id: str, include_finished: bool = False):
+    return {"user_id": user_id, "reminders": list_reminders(user_id, include_finished)}
+
+
+@router.get("/reminders/{user_id}/due")
+async def due_reminders(user_id: str):
+    """Frontend polling endpoint. Items remain until completed or snoozed."""
+    return {"user_id": user_id, "reminders": notified_reminders(user_id)}
+
+
+@router.post("/reminders")
+async def create_reminder(req: ReminderCreateRequest):
+    due_at = req.due_at.replace(tzinfo=TZ) if req.due_at.tzinfo is None else req.due_at.astimezone(TZ)
+    reminder = create_pending(req.user_id, req.content.strip(), due_at, req.repeat_rule)
+    reminder = activate_reminder(req.user_id, reminder["id"])
+    return {"ok": True, "reminder": reminder}
+
+
+@router.post("/reminders/{reminder_id}/confirm")
+async def confirm_reminder(reminder_id: int, req: ReminderActionRequest):
+    reminder = activate_reminder(req.user_id, reminder_id)
+    return {"ok": bool(reminder), "reminder": reminder}
+
+
+@router.post("/reminders/{reminder_id}/complete")
+async def complete_reminder(reminder_id: int, req: ReminderActionRequest):
+    reminder = complete_reminder_by_id(req.user_id, reminder_id)
+    return {"ok": bool(reminder), "reminder": reminder}
+
+
+@router.post("/reminders/{reminder_id}/snooze")
+async def snooze_reminder(reminder_id: int, req: ReminderActionRequest):
+    updated = snooze_reminder_by_id(req.user_id, reminder_id, max(1, min(req.minutes, 180)))
+    return {"ok": bool(updated), "reminder": updated}
+
+
+@router.delete("/reminders/{reminder_id}")
+async def remove_reminder(reminder_id: int, user_id: str):
+    return {"ok": cancel_reminder(user_id, reminder_id)}
+
+
 @router.post("/chat/stream")
 async def chat_stream(req: ChatRequest):
     """Streaming chat for Chinese companion."""
@@ -167,6 +260,32 @@ async def chat_stream(req: ChatRequest):
     state.update(tool_detect(state))
     state.update(context_assemble(state))
 
+    tool_result = state.get("tool_result") or {}
+    if tool_result.get("type") == "official":
+        answer = format_current_official_answer(tool_result)
+
+        async def official_stream():
+            yield f"data: {json.dumps({'token': answer, 'done': False}, ensure_ascii=False)}\n\n"
+            yield f"data: {json.dumps({'token': '', 'done': True, 'emotion': None, 'news': None}, ensure_ascii=False)}\n\n"
+
+        return StreamingResponse(official_stream(), media_type="text/event-stream")
+    if tool_result.get("type") in ("reminder", "memory"):
+        answer = tool_result.get("answer", "")
+        reminder = None
+        if tool_result.get("type") == "reminder" and tool_result.get("requires_confirmation"):
+            reminder = {
+                "id": tool_result.get("reminder_id"),
+                "content": tool_result.get("content", ""),
+                "due_at": tool_result.get("due_at", ""),
+                "requires_confirmation": True,
+            }
+
+        async def managed_stream():
+            yield f"data: {json.dumps({'token': answer, 'done': False}, ensure_ascii=False)}\n\n"
+            yield f"data: {json.dumps({'token': '', 'done': True, 'emotion': None, 'news': None, 'reminder': reminder}, ensure_ascii=False)}\n\n"
+
+        return StreamingResponse(managed_stream(), media_type="text/event-stream")
+
     msgs = state.get("messages", [])
     em = state.get("emotion", {})
     primary = em.get("primary", "neutral") if em else "neutral"
@@ -180,7 +299,10 @@ async def chat_stream(req: ChatRequest):
     else:
         stream_client = _model_client
         stream_model = QWEN_MODEL
-        stream_extra = {"repetition_penalty": params["repetition_penalty"]}
+        stream_extra = {
+            "repetition_penalty": params["repetition_penalty"],
+            "chat_template_kwargs": QWEN_CHAT_TEMPLATE_KWARGS,
+        }
 
     async def event_stream():
         full_response = ""
@@ -194,7 +316,7 @@ async def chat_stream(req: ChatRequest):
                 top_p=params.get("top_p", 0.88),
                 frequency_penalty=params.get("frequency_penalty", 0.1),
                 presence_penalty=params.get("presence_penalty", 0.0),
-                max_tokens=350,
+                max_tokens=220,
                 stream=True,
                 extra_body=stream_extra,
             )
@@ -219,8 +341,14 @@ async def chat_stream(req: ChatRequest):
             if buffer.strip():
                 yield f"data: {json.dumps({'token': buffer, 'done': False}, ensure_ascii=False)}\n\n"
 
-            # Done event with emotion
-            yield f"data: {json.dumps({'token': '', 'done': True, 'emotion': {'primary': primary, 'intensity': em.get('intensity', 0) if em else 0}}, ensure_ascii=False)}\n\n"
+            tool_result = state.get("tool_result") or {}
+            news = None
+            if tool_result.get("type") == "news" and tool_result.get("ok"):
+                news = {
+                    "query": user_in,
+                    "article_ids": [article["id"] for article in tool_result.get("articles", [])],
+                }
+            yield f"data: {json.dumps({'token': '', 'done': True, 'emotion': {'primary': primary, 'intensity': em.get('intensity', 0) if em else 0}, 'news': news}, ensure_ascii=False)}\n\n"
 
             # Post-processing: memory extraction (async after done)
             state["response"] = full_response
@@ -268,7 +396,7 @@ async def check_news(q: str = ""):
 
 
 @router.get("/news")
-async def list_news(country: str = "", source: str = "", limit: int = 50):
+async def list_news(country: str = "", source: str = "", pinned_ids: str = "", limit: int = 50):
     """Browse scraped news from the knowledge base. Optional country/source filters."""
     import sqlite3
     _db = os.path.join(os.path.dirname(__file__), "data", "news.db")
@@ -276,6 +404,9 @@ async def list_news(country: str = "", source: str = "", limit: int = 50):
         return {"ok": False, "error": "News database not found. Run news_scraper.py first."}
     with sqlite3.connect(_db) as conn:
         conn.row_factory = sqlite3.Row
+        pin_ids = list(dict.fromkeys(
+            int(value.strip()) for value in pinned_ids.split(",") if value.strip().isdigit()
+        ))[:20]
         query = "SELECT id, title, summary, source, category, country, url, published_at, scraped_at FROM news_articles WHERE 1=1"
         params = []
         if country:
@@ -284,7 +415,12 @@ async def list_news(country: str = "", source: str = "", limit: int = 50):
         if source:
             query += " AND source LIKE ?"
             params.append(f"%{source}%")
-        query += " ORDER BY id DESC LIMIT ?"
+        if pin_ids:
+            placeholders = ",".join("?" for _ in pin_ids)
+            query += f" ORDER BY CASE WHEN id IN ({placeholders}) THEN 0 ELSE 1 END, id DESC LIMIT ?"
+            params.extend(pin_ids)
+        else:
+            query += " ORDER BY id DESC LIMIT ?"
         params.append(limit)
         rows = conn.execute(query, params).fetchall()
         return {

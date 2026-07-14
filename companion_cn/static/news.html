@@ -83,6 +83,10 @@
 const API = '/v1/langgraph/news';
 let allCountries = new Set();
 let allSources = new Set();
+let lastNewsCall = null;
+try {
+  lastNewsCall = JSON.parse(localStorage.getItem('companion_last_news_call') || 'null');
+} catch (_) {}
 
 async function loadNews() {
   const list = document.getElementById('list');
@@ -93,6 +97,8 @@ async function loadNews() {
   const params = new URLSearchParams({ limit: 100 });
   if (country) params.set('country', country);
   if (source) params.set('source', source);
+  const pinnedIds = Array.isArray(lastNewsCall?.article_ids) ? lastNewsCall.article_ids : [];
+  if (pinnedIds.length) params.set('pinned_ids', pinnedIds.join(','));
 
   try {
     const r = await fetch(API + '?' + params);
@@ -101,7 +107,8 @@ async function loadNews() {
       list.innerHTML = `<div class="empty">${data.error || '暂无数据'}</div>`;
       return;
     }
-    document.getElementById('stats').textContent = `共 ${data.count} 条`;
+    const pinNote = pinnedIds.length ? ' · 本次问答调用的新闻已置顶' : '';
+    document.getElementById('stats').textContent = `共 ${data.count} 条${pinNote}`;
 
     // Update filters
     data.articles.forEach(a => {
@@ -115,18 +122,24 @@ async function loadNews() {
       return;
     }
 
-    list.innerHTML = data.articles.map(a => `
-      <div class="article">
+    const pinnedArticles = data.articles.filter(a => pinnedIds.includes(a.id));
+    const otherArticles = data.articles.filter(a => !pinnedIds.includes(a.id));
+    const renderArticle = a => `
+      <div class="article"${pinnedIds.includes(a.id) ? ' style="border-color:#c97a5e;box-shadow:0 2px 10px rgba(201,122,94,.15)"' : ''}>
         <span class="source">${esc(a.source)}</span>
         ${a.country ? `<span class="country">${esc(a.country)}</span>` : ''}
         ${a.category ? `<span style="font-size:11px;color:#888">${esc(a.category)}</span>` : ''}
+        ${pinnedIds.includes(a.id) ? '<span class="badge" style="background:#fff0ed;color:#c97a5e">本次调用</span>' : ''}
         <span class="badge real">✓ 官方来源</span>
         <div class="title">${esc(a.title)}</div>
         ${a.summary ? `<div class="summary">${esc(a.summary)}</div>` : ''}
         ${a.url ? `<div class="url">来源：<a href="${esc(a.url)}" target="_blank" rel="noopener">${esc(a.url)}</a></div>` : ''}
         ${a.scraped_at ? `<div style="font-size:10px;color:#bbb;margin-top:2px">抓取时间：${esc(a.scraped_at.slice(0,19).replace('T',' '))}</div>` : ''}
       </div>
-    `).join('');
+    `;
+    list.innerHTML =
+      (pinnedArticles.length ? `<div style="margin:8px 0 10px;padding:10px 12px;border-radius:10px;background:#fff0ed;color:#a85d45;font-size:13px;font-weight:600">本轮问答新闻 · 已置顶</div>${pinnedArticles.map(renderArticle).join('')}` : '') +
+      (otherArticles.length ? (pinnedArticles.length ? '<div style="margin:20px 0 10px;color:#8c7b72;font-size:13px">其他新闻</div>' : '') + otherArticles.map(renderArticle).join('') : '');
 
   } catch (e) {
     list.innerHTML = `<div class="empty">加载失败：${e.message}</div>`;
@@ -147,6 +160,27 @@ function updateFilters() {
     sSel.innerHTML += `<option value="${esc(s)}" ${s===currentS?'selected':''}>${esc(s)}</option>`;
   });
 }
+
+// The chat page writes the article IDs after a news answer finishes. Keep an
+// already-open news page in sync instead of requiring a manual refresh.
+window.addEventListener('storage', event => {
+  if (event.key !== 'companion_last_news_call') return;
+  try {
+    lastNewsCall = JSON.parse(event.newValue || 'null');
+    loadNews();
+  } catch (_) {}
+});
+
+let lastNewsCallRaw = localStorage.getItem('companion_last_news_call') || '';
+setInterval(() => {
+  const raw = localStorage.getItem('companion_last_news_call') || '';
+  if (raw === lastNewsCallRaw) return;
+  lastNewsCallRaw = raw;
+  try {
+    lastNewsCall = JSON.parse(raw || 'null');
+    loadNews();
+  } catch (_) {}
+}, 3000);
 
 function esc(s) {
   const d = document.createElement('div');

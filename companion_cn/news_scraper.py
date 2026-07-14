@@ -34,8 +34,9 @@ DB_PATH = os.path.join(BASE_DIR, "data", "news.db")
 LOG_PATH = os.path.join(BASE_DIR, "data", "news_scraper.log")
 
 # ── Qwen client ───────────────────────────────────────────────────────────────
-QWEN_URL = "http://192.168.253.91:8003/v1"
-QWEN_MODEL = "/model"
+QWEN_URL = "http://192.168.253.95:8013/v1"
+QWEN_MODEL = "qwen35-4b"
+QWEN_CHAT_TEMPLATE_KWARGS = {"enable_thinking": False}
 _llm = OpenAI(base_url=QWEN_URL, api_key="x")
 
 # ── Logging ───────────────────────────────────────────────────────────────────
@@ -568,6 +569,7 @@ def summarize_articles(articles: list[dict]) -> list[dict]:
                 messages=[{"role": "user", "content": prompt}],
                 temperature=0.2,
                 max_tokens=120,
+                extra_body={"chat_template_kwargs": QWEN_CHAT_TEMPLATE_KWARGS},
                 timeout=10,
             )
             summary = r.choices[0].message.content.strip()

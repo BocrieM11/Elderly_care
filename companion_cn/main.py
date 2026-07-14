@@ -2,6 +2,7 @@
 import sys
 import io
 import os
+import asyncio
 
 sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8')
 
@@ -12,9 +13,32 @@ import uvicorn
 from .api import router
 from .openai_compat import router as openai_router
 from .config import PORT
+from .reminders import init as init_reminders, mark_due_reminders
 
 app = FastAPI(title="养老陪伴", version="1.0")
 app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"], allow_headers=["*"])
+
+_reminder_task = None
+
+
+async def _reminder_loop():
+    """Mark due reminders in the database; delivery is handled by the web client."""
+    while True:
+        mark_due_reminders()
+        await asyncio.sleep(15)
+
+
+@app.on_event("startup")
+async def start_reminder_service():
+    global _reminder_task
+    init_reminders()
+    _reminder_task = asyncio.create_task(_reminder_loop())
+
+
+@app.on_event("shutdown")
+async def stop_reminder_service():
+    if _reminder_task:
+        _reminder_task.cancel()
 
 # Internal API (legacy)
 app.include_router(router)

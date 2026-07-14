@@ -5,10 +5,14 @@ import random
 from concurrent.futures import ThreadPoolExecutor
 from openai import OpenAI
 from .state import GraphState
-from .config import QWEN_URL, QWEN_MODEL, DEEPSEEK_KEY, DEEPSEEK_URL, DEEPSEEK_MODEL, USE_DEEPSEEK_GEN, MAX_CONTEXT, DIALECT_STYLES
+from .config import QWEN_URL, QWEN_MODEL, QWEN_CHAT_TEMPLATE_KWARGS, DEEPSEEK_KEY, DEEPSEEK_URL, DEEPSEEK_MODEL, USE_DEEPSEEK_GEN, MAX_CONTEXT, DIALECT_STYLES
 from .safety import scan
-from .memory import get_facts, add_fact
-from .tools import get_time_info, get_weather, get_news
+from .memory import get_facts, add_fact, list_facts, delete_facts_matching, clear_facts
+from .reminders import (
+    create_pending, confirm_latest, cancel_latest, complete_latest, snooze_latest,
+    list_reminders, parse_reminder_time, format_due_at,
+)
+from .tools import get_time_info, get_weather, get_news, get_current_official, is_current_official_query, expand_current_official_followup, format_current_official_answer
 
 # ---------------------------------------------------------------------------
 # Clients
@@ -17,87 +21,33 @@ _model = OpenAI(base_url=QWEN_URL, api_key="x")
 _ds = OpenAI(api_key=DEEPSEEK_KEY, base_url=DEEPSEEK_URL) if DEEPSEEK_KEY else None
 
 # ---------------------------------------------------------------------------
-# Persona builder — dialect-aware, shared rules + examples
+# Persona builder — one compact runtime prompt for Qwen 3.5 4B
 # ---------------------------------------------------------------------------
-_BASE_RULES = (
-    # ── 五条铁规矩 ──
-    "记住五条铁规矩：\n"
-    "1. 先接住情绪，再追问。\n"
-    "   对方高兴：「那可真好！」对方难过：「唉，这事儿搁谁身上都不好受。」\n"
-    "   然后自然地问一句「后来呢」「具体怎么回事」，别急着转移话题。\n"
-    "2. 别说教、别给建议。\n"
-    "   不说「你应该」「你得」「你要」「建议你」「可以试试」。\n"
-    "   你是个会聊天的朋友，不是养生专家、心理咨询师。\n"
-    "3. 别编造。对方没说过的事，你不要替人家编。\n"
-    "   不说「你上次说的那个」——除非对方真的说过。\n"
-    "4. 用大白话。\n"
-    "   不要比喻、不要排比、不要「心里一暖」「生命的光」「岁月的痕迹」这种书面语。\n"
-    "   说「腰疼」不说「腰部不适」，说「心里难受」不说「情绪低落」。\n"
-    "5. 3到5句就停。每句话不超过25个字。说太多对方会累。\n"
-    "6. 别假装自己有生活。\n"
-    "   不说「我刚吃了」「我昨天去了」「我家」「我煮了」「我孙子」这种话。\n"
-    "   你是陪人聊天的伴儿，不是来聊你自己的。把注意力放在对方身上。\n"
-    "7. 别编新闻。死规矩。\n"
-    "   只说你看到的新闻。绝对不要把不同新闻拼在一起，不要给新闻加细节。\n"
-    "   不要编造任何人名、地名、数字、时间、原因、结果。\n"
-    "   对方问的国家/话题如果数据库里没有 → 直接说「这个我还不太清楚，数据库里今儿没瞅见」。\n"
-    "\n"
-    # ── 不同情况怎么聊 ──
-    "不同情况怎么聊：\n"
-    "- 对方说孤独/闷得慌：陪着聊聊过去的热闹事，自然问一句「以前这时候你都干啥呢」\n"
-    "- 对方说身体不舒服：先心疼两句，再问问具体怎么不舒服，别提「去医院看看吧」（人家知道）\n"
-    "- 对方生气/委屈：先站他这边「这事儿确实气人」，别急着讲道理\n"
-    "- 对方回忆过去：追问细节，「那时候你们」「当时怎么想的」，别只说「真好啊」\n"
-    "- 对方高兴/分享好事：放大他的开心，「那可太好了！」，让人家多说说\n"
-    "\n"
-    # ── 正确示范（10个场景） ──
-    "正确示范：\n"
-    "对方「孙子昨天来看我了，特别高兴」\n"
-    "你「孙子来啦！那可真好。他多大了？是放假回来还是就在附近？」\n"
-    "\n"
-    "对方「最近腰老是疼，晚上翻身都费劲」\n"
-    "你「那晚上睡觉肯定遭罪。是最近累着了还是老毛病？」\n"
-    "\n"
-    "对方「不知道怎么的，心里闷得慌」\n"
-    "你「心里闷着可不好受。你要是不想说具体什么事，咱就随便聊点别的，陪你散散心。」\n"
-    "\n"
-    "对方「我老伴走了三年了，还是想她」\n"
-    "你「三年了，那肯定还是放不下。你们那时候感情一定很好吧？她是个什么样的人？」\n"
-    "\n"
-    "对方「隔壁老张上个月走了，心里空落落的」\n"
-    "你「唉……认识的老人一个个走了，这滋味是不好受。你跟老张认识多少年了？」\n"
-    "\n"
-    "对方「今天出去走了走，院子里花开了，挺好看」\n"
-    "你「那可不错！能出去走走说明今天精神好。开的什么花呀？」\n"
-    "\n"
-    "对方「儿子说下周来看我，也不知道真的假的」\n"
-    "你「说要来那就是有心。你是怕他又是临时有事来不了吧？孩子们上班确实忙。」\n"
-    "\n"
-    "对方「年轻的时候我在厂里，可厉害了，年年先进」\n"
-    "你「那可了不得！年年先进可不容易。那时候你在哪个厂？主要做什么活儿？」\n"
-    "\n"
-    "对方「也没什么，就是觉得一天天的……」\n"
-    "你「一天天的，有时候就是会觉得缺点啥。你要是想聊点啥就说说，不想说咱就这么待着也行。」\n"
-    "\n"
-    "对方「今天吃饺子了，韭菜鸡蛋的，可香了」\n"
-    "你「韭菜鸡蛋的！那可真是香。自己包的还是买的速冻的？蘸醋了没有？」\n"
-    "\n"
-    # ── 错误示范（3个对比） ──
-    "错误示范（千万别这样回）：\n"
-    "对方「最近腰老是疼」\n"
-    "❌「您可以试试热敷或者贴膏药，每天坚持走路半小时对腰椎有好处。」（说教了！）\n"
-    "✅「那晚上睡觉肯定遭罪。是最近累着了还是老毛病？」\n"
-    "\n"
-    "对方「也没什么，就是觉得一天天的……」\n"
-    "❌「生活很美好，您要多想开心的事，心情不好会影响健康的。」（空洞说教！）\n"
-    "✅「一天天的，有时候就是会觉得缺点啥。你要是想聊啥就说，不想说咱就这么待着也行。」\n"
-    "\n"
-    "对方「我孙子考上大学了」\n"
-    "❌「恭喜您！您孙子肯定特别感谢您的养育之恩。等他毕业了您就享福了。」（编造+升华！）\n"
-    "✅「考上大学了！那可太好了。是哪个学校？学的什么专业？」\n"
-)
-
 PERSONA_CACHE = {}
+
+_COMPACT_BASE_RULES = (
+    "任务：像熟悉的邻居朋友一样陪老人聊天。\n"
+    "优先级（从高到低）：\n"
+    "1. 必须紧接对方上一句和当前话题回答，不能换话题、重置聊天或说泛泛的客套话。\n"
+    "2. 不必每次都提问。只有提问能自然推进当前内容时才问一个问题；问题必须包含对方刚说的具体人、事、物或动作。\n"
+    "   禁止用“怎么样、怎么回事、想不想、还有什么”这类泛泛追问。对方只简短回应、换话题、没心情、不想说、别问或说你没听懂时，不要追问。\n"
+    "3. 只说对方、记忆或工具信息中出现过的事实；绝不怀疑、否定、缩小或改写对方说的损失和经历。\n"
+    "4. 你是聊天助手，没有身体、住处、食物和现实行动能力。不能说自己会做饭、去买、送来、动身、吃过、看见过或马上办成。\n"
+    "5. 不要主动或反复说“我做不到、我没法、我没有嘴/手”。只有用户直接要求你做现实动作时，才简短说明一次不能实际完成；其余时候自然聊天。\n"
+    "6. 用户聊吃的、玩的或回忆时，就顺着具体内容聊口味、感受和已说过的经历，不凭空编造他的家人、童年、店名或往事。\n"
+    "7. 用户随时可能换话题。当前一句有明确的新问题或新需求时，只回答这个新话题，不要把之前的食物、回忆或问题硬接进来。\n"
+    "8. 不能播放音乐、操作设备或执行外部动作时，简短说明一次，再提供与当前需求相关的帮助，例如按歌手、年代或心情推荐歌曲；不要转去讲无关故事。\n"
+    "9. 用自然的大白话，不说教，不做医生、老师或人生导师；回复 1 到 3 句，每句尽量不超过 25 个字。\n"
+    "10. 身体不舒服时先表示关心并问清情况，不给诊断、药物或治疗方案。\n"
+    "11. 新闻、天气等事实只按工具信息转述；工具没有提到就说没看到。\n"
+    "例：对方说“最近腰疼”，可答“那晚上睡觉肯定不好受。是最近累着了还是老毛病？”\n"
+    "例：对方说“孙子来看我了”，可答“那可真好！他这次待了多久？”\n"
+    "例：对方说“我现在没心情回你”，可答“是我刚才没接住你的话，对不起。我不追问了，陪着你。”\n"
+    "例：对方说“我被骗钱了”，可答“这事太糟心了。先别再转钱，赶紧联系银行或支付平台止付。”\n"
+    "例：对方说“我想吃辣子鸡”，可答“辣子鸡确实香，配碗米饭肯定更过瘾。您更爱麻一点还是辣一点？”\n"
+    "例：对方说“想吃冰激凌”，可答“蓝莓味清清爽爽的，天热时吃着确实舒服。您喜欢甜一点还是酸一点？”\n"
+    "例：对方说“你会放音乐吗”，可答“我这里不能直接播放。您想听老歌、民歌，还是轻松一点的？”\n"
+)
 
 def build_persona(dialect: str) -> str:
     """Construct persona with dialect-specific style flavor. Result is cached."""
@@ -113,7 +63,7 @@ def build_persona(dialect: str) -> str:
         "每句话开头换着来，别老用同一个调调。\n"
         "你不是医生、不是老师、不是人生导师，你只负责陪着聊天。\n"
         "\n"
-        + _BASE_RULES
+        + _COMPACT_BASE_RULES
     )
     PERSONA_CACHE[dialect] = persona
     return persona
@@ -278,16 +228,16 @@ neutral|0.2|日常闲聊
 情绪："""
 
 EMOTION_PARAMS = {
-    "loneliness": {"temperature": 0.85, "top_p": 0.92, "frequency_penalty": 0.3, "presence_penalty": 0.2, "repetition_penalty": 1.15},
-    "sadness":   {"temperature": 0.70, "top_p": 0.88, "frequency_penalty": 0.1, "presence_penalty": 0.1, "repetition_penalty": 1.10},
-    "anxiety":   {"temperature": 0.60, "top_p": 0.85, "frequency_penalty": 0.1, "presence_penalty": 0.0, "repetition_penalty": 1.10},
-    "anger":     {"temperature": 0.70, "top_p": 0.88, "frequency_penalty": 0.2, "presence_penalty": 0.1, "repetition_penalty": 1.12},
-    "joy":       {"temperature": 0.85, "top_p": 0.92, "frequency_penalty": 0.2, "presence_penalty": 0.1, "repetition_penalty": 1.12},
-    "nostalgia": {"temperature": 0.78, "top_p": 0.90, "frequency_penalty": 0.2, "presence_penalty": 0.1, "repetition_penalty": 1.12},
-    "surprise":  {"temperature": 0.80, "top_p": 0.90, "frequency_penalty": 0.1, "presence_penalty": 0.1, "repetition_penalty": 1.10},
-    "blush":     {"temperature": 0.75, "top_p": 0.88, "frequency_penalty": 0.1, "presence_penalty": 0.1, "repetition_penalty": 1.10},
-    "excited":   {"temperature": 0.88, "top_p": 0.92, "frequency_penalty": 0.2, "presence_penalty": 0.1, "repetition_penalty": 1.12},
-    "neutral":   {"temperature": 0.75, "top_p": 0.88, "frequency_penalty": 0.1, "presence_penalty": 0.0, "repetition_penalty": 1.12},
+    "loneliness": {"temperature": 0.65, "top_p": 0.86, "frequency_penalty": 0.05, "presence_penalty": 0.0, "repetition_penalty": 1.08},
+    "sadness":   {"temperature": 0.58, "top_p": 0.82, "frequency_penalty": 0.05, "presence_penalty": 0.0, "repetition_penalty": 1.08},
+    "anxiety":   {"temperature": 0.55, "top_p": 0.80, "frequency_penalty": 0.03, "presence_penalty": 0.0, "repetition_penalty": 1.08},
+    "anger":     {"temperature": 0.60, "top_p": 0.83, "frequency_penalty": 0.05, "presence_penalty": 0.0, "repetition_penalty": 1.08},
+    "joy":       {"temperature": 0.70, "top_p": 0.88, "frequency_penalty": 0.05, "presence_penalty": 0.0, "repetition_penalty": 1.08},
+    "nostalgia": {"temperature": 0.65, "top_p": 0.85, "frequency_penalty": 0.05, "presence_penalty": 0.0, "repetition_penalty": 1.08},
+    "surprise":  {"temperature": 0.65, "top_p": 0.85, "frequency_penalty": 0.05, "presence_penalty": 0.0, "repetition_penalty": 1.08},
+    "blush":     {"temperature": 0.60, "top_p": 0.83, "frequency_penalty": 0.05, "presence_penalty": 0.0, "repetition_penalty": 1.08},
+    "excited":   {"temperature": 0.70, "top_p": 0.88, "frequency_penalty": 0.05, "presence_penalty": 0.0, "repetition_penalty": 1.08},
+    "neutral":   {"temperature": 0.60, "top_p": 0.84, "frequency_penalty": 0.05, "presence_penalty": 0.0, "repetition_penalty": 1.08},
 }
 
 FALLBACKS = [
@@ -338,6 +288,7 @@ def summarize_topic(messages: list[dict]) -> str:
             }],
             temperature=0.0,
             max_tokens=30,
+            extra_body={"chat_template_kwargs": QWEN_CHAT_TEMPLATE_KWARGS},
             timeout=5,
         )
         return r.choices[0].message.content.strip()
@@ -380,6 +331,31 @@ TOOL_KEYWORDS["time"] = [
     "今天什么日子", "什么时候", "现在几点", "今天星期几",
 ]
 
+# Short country/region follow-ups such as "日本呢？" inherit the news topic
+# from the preceding user turn.  Without this, only the first question in a
+# news conversation reaches the news tool.
+_NEWS_FOLLOWUP_LOCATIONS = {
+    "中国", "美国", "日本", "韩国", "朝鲜", "俄罗斯", "英国", "法国", "德国",
+    "印度", "乌克兰", "以色列", "伊朗", "澳大利亚", "加拿大", "欧盟", "东盟",
+    "越南", "泰国", "菲律宾", "土耳其", "香港", "澳门", "台湾",
+}
+
+
+def _is_news_followup(state: GraphState, text: str) -> bool:
+    """Return True for a short location follow-up to a recent news question."""
+    if len(text.strip()) > 20 or not any(place in text for place in _NEWS_FOLLOWUP_LOCATIONS):
+        return False
+    history = state.get("messages", [])
+    recent_user_turns = [
+        message.get("content", "")
+        for message in history[-6:]
+        if isinstance(message, dict) and message.get("role") == "user"
+    ]
+    return any(
+        any(keyword in previous.lower() for keyword in TOOL_KEYWORDS["news"])
+        for previous in recent_user_turns[:-1]
+    )
+
 # Common Chinese cities — checked in user input for weather queries
 _CITY_LIST = [
     "北京", "上海", "广州", "深圳", "天津", "重庆", "杭州", "南京", "武汉", "成都",
@@ -415,15 +391,111 @@ def input_guard(state: GraphState) -> dict:
 # ---------------------------------------------------------------------------
 # Node 1.5: tool_detect — keyword-triggered external API calls
 # ---------------------------------------------------------------------------
+def _personal_management_tool(user_id: str, text: str) -> dict | None:
+    """Handle reminders and user-controlled memory without asking the LLM to act."""
+    raw = text.strip()
+    if user_id == "anonymous":
+        return None
+
+    # Memory is always explicit: the companion never treats casual chat as a
+    # request to retain or erase personal data.
+    if any(phrase in raw for phrase in ("你记得我什么", "查看记忆", "我的记忆", "记忆有哪些")):
+        facts = list_facts(user_id)
+        if not facts:
+            answer = "我现在没有记住您的个人信息。您想让我记住什么，可以直接告诉我。"
+        else:
+            answer = "我现在记着这些：" + "；".join(item["fact"] for item in facts[:10]) + "。"
+        return {"type": "memory", "ok": True, "answer": answer}
+    if "确认清空记忆" in raw:
+        count = clear_facts(user_id)
+        return {"type": "memory", "ok": True, "answer": f"已经清空{count}条记忆，以后不会再引用它们。"}
+    if any(phrase in raw for phrase in ("清空我的记忆", "清空记忆", "忘掉所有记忆")):
+        return {"type": "memory", "ok": True, "answer": "这会删除我记住的所有个人信息。请回复“确认清空记忆”。"}
+    delete_match = re.search(r"(?:别再记|忘掉|删除)(?:这件事|记忆|我)?[：:，, ]*(.+)", raw)
+    if delete_match:
+        phrase = delete_match.group(1).strip("。！？!？ ")
+        if not phrase:
+            return {"type": "memory", "ok": True, "answer": "您想让我忘掉哪一条？可以把那句话再说一遍。"}
+        count = delete_facts_matching(user_id, phrase)
+        answer = f"已经忘掉和“{phrase}”有关的{count}条记忆。" if count else f"我没找到和“{phrase}”一致的记忆。"
+        return {"type": "memory", "ok": True, "answer": answer}
+    remember_match = re.search(r"(?:请)?记住(?:我)?[：:，, ]*(.+)", raw)
+    if remember_match:
+        fact = remember_match.group(1).strip("。！？!？ ")
+        if fact:
+            add_fact(user_id, fact, "user_confirmed")
+            return {"type": "memory", "ok": True, "answer": f"好，我记住了：{fact}。以后您也可以让我忘掉它。"}
+
+    # Reminder commands are confirmation-first. A reminder is not activated
+    # until the person explicitly confirms the parsed time and content.
+    if any(phrase in raw for phrase in ("查看提醒", "我的提醒", "提醒有哪些")):
+        reminders = list_reminders(user_id)
+        if not reminders:
+            answer = "您现在没有待办提醒。"
+        else:
+            answer = "您有这些提醒：" + "；".join(
+                f"{format_due_at(item)} {item['content']}" for item in reminders[:10]
+            ) + "。"
+        return {"type": "reminder", "ok": True, "answer": answer}
+    if raw in ("确认提醒", "确认", "好的", "好", "可以", "行"):
+        reminder = confirm_latest(user_id)
+        if reminder:
+            return {"type": "reminder", "ok": True, "answer": f"已经设置：{format_due_at(reminder)}提醒您{reminder['content']}。"}
+    if any(phrase in raw for phrase in ("取消提醒", "取消刚才的提醒", "不要提醒了")):
+        reminder = cancel_latest(user_id)
+        answer = f"已经取消“{reminder['content']}”的提醒。" if reminder else "我没找到可以取消的提醒。"
+        return {"type": "reminder", "ok": True, "answer": answer}
+    if any(phrase in raw for phrase in ("完成提醒", "我吃了", "已经吃了", "我完成了")):
+        reminder = complete_latest(user_id)
+        answer = f"好，这条提醒已经标为完成：{reminder['content']}。" if reminder else "我没找到需要完成的提醒。"
+        return {"type": "reminder", "ok": True, "answer": answer}
+    snooze = re.search(r"(?:延后|稍后)(\d{1,3})?\s*分钟", raw)
+    if snooze:
+        minutes = int(snooze.group(1) or 10)
+        reminder = snooze_latest(user_id, minutes)
+        answer = f"好，我会在{minutes}分钟后再提醒您{reminder['content']}。" if reminder else "我没找到需要延后的提醒。"
+        return {"type": "reminder", "ok": True, "answer": answer}
+    if any(phrase in raw for phrase in ("提醒", "叫醒", "闹钟")):
+        due_at, repeat_rule = parse_reminder_time(raw)
+        action = next((item for item in ("提醒", "叫醒", "闹钟") if item in raw), "")
+        content = raw.split(action, 1)[1].strip() if action else ""
+        if content.startswith("我"):
+            content = content[1:].strip()
+        if not content and "叫醒" in raw:
+            content = "起床"
+        if not due_at:
+            return {"type": "reminder", "ok": True, "answer": "您想在几点提醒？例如：明天早上8点提醒我吃药。"}
+        content = re.sub(r"(?:明天|明早|明晚|今天|今晚|早上|上午|中午|下午|晚上|每天|每日|每晚|每早)?\s*\d{1,2}(?:点|时)(?:\d{1,2}分?)?", "", content).strip("，,。！？!？ ")
+        content = re.sub(r"[一二两俩三四五六七八九十\d]{1,3}\s*分钟后", "", content).strip("，,。！？!？ ")
+        if not content:
+            return {"type": "reminder", "ok": True, "answer": "您想让我提醒什么事情？"}
+        reminder = create_pending(user_id, content, due_at, repeat_rule)
+        repeat_text = "，每天重复" if repeat_rule else ""
+        return {
+            "type": "reminder", "ok": True,
+            "answer": f"我理解为：{format_due_at(reminder)}提醒您{content}{repeat_text}。请在确认窗口中选择是否设置。",
+            "reminder_id": reminder["id"], "content": content,
+            "due_at": reminder["due_at"], "requires_confirmation": True,
+        }
+    return None
+
+
 def tool_detect(state: GraphState) -> dict:
     text = state.get("user_input", "").lower()
     default_city = state.get("weather_city", "北京") or "北京"
     extracted_city = _extract_city(text)
 
+    personal_result = _personal_management_tool(state.get("user_id", "anonymous"), state.get("user_input", ""))
+    if personal_result:
+        return {"tool_result": personal_result, "weather_city": default_city}
+
     # Determine which tool to call based on keyword overlap
     scores = {}
     for tool, keywords in TOOL_KEYWORDS.items():
         scores[tool] = sum(1 for kw in keywords if kw in text)
+
+    if scores["news"] == 0 and _is_news_followup(state, text):
+        scores["news"] = 1
 
     # Time: always inject (free, no latency cost), but only respond when asked
     time_info = get_time_info()
@@ -433,7 +505,17 @@ def tool_detect(state: GraphState) -> dict:
     top_tool = max(scores, key=scores.get)
     top_score = scores[top_tool]
 
-    if top_score >= 1:
+    # A short country follow-up ("英国呢") inherits a recent supported office
+    # query. Expand it before generic news scoring.
+    official_followup = expand_current_official_followup(state.get("user_input", ""), state.get("messages", []))
+
+    # A current office holder is a live fact, not a news topic. Always route it
+    # before generic keyword scoring so news DB entries cannot override it.
+    if is_current_official_query(text):
+        result = get_current_official(text)
+    elif official_followup:
+        result = get_current_official(official_followup)
+    elif top_score >= 1:
         if top_tool == "weather":
             city = extracted_city or default_city
             result = get_weather(city)
@@ -481,6 +563,7 @@ def emotion_detect(state: GraphState) -> dict:
             }],
             temperature=0.0,
             max_tokens=50,
+            extra_body={"chat_template_kwargs": QWEN_CHAT_TEMPLATE_KWARGS},
             timeout=5,
         )
         raw = r.choices[0].message.content.strip()
@@ -563,6 +646,8 @@ def context_assemble(state: GraphState) -> dict:
         parts.append(f"[工具信息：{tool['text']}]")
         if tool.get("type") == "news":
             parts.append("[重要：以上新闻来自官方媒体数据库。只转述数据库里有的内容，不要编造、不要添加细节、不要推测。数据库里没提到的，就说没看到。]")
+        elif tool.get("type") == "official":
+            parts.append("[重要：现任职务只能依据以上实时查询。查询失败时直接说无法确认；不要猜测，不要建议用户问亲友。]")
 
     dialect = state.get("dialect", "northern")
     parts.append(build_persona(dialect))
@@ -578,7 +663,7 @@ def context_assemble(state: GraphState) -> dict:
                 parts.append(f"- {f}")
         else:
             parts.append("\n[你记得关于这位邻居的事]")
-            for f in facts[:5]:
+            for f in facts[:3]:
                 parts.append(f"- {f}")
 
     # --- 3. Question dedup ---
@@ -592,6 +677,14 @@ def context_assemble(state: GraphState) -> dict:
     msgs = [{"role": "system", "content": sys}]
     if hist:
         recent = hist[-(MAX_CONTEXT * 2):]
+        # Web clients usually include the just-sent user message in ``messages``.
+        # Do not append it again below, otherwise the model treats one statement
+        # as repeated emphasis and tends to echo it back or over-react to it.
+        has_current_user_message = bool(
+            recent
+            and recent[-1].get("role") == "user"
+            and recent[-1].get("content") == state.get("user_input", "")
+        )
         for m in recent:
             role = m.get("role") if isinstance(m, dict) else getattr(m, "role", "user")
             content = m.get("content") if isinstance(m, dict) else getattr(m, "content", "")
@@ -599,7 +692,7 @@ def context_assemble(state: GraphState) -> dict:
                 msgs.append({"role": role, "content": content})
 
     user_in = state.get("user_input", "")
-    if user_in:
+    if user_in and not (hist and has_current_user_message):
         msgs.append({"role": "user", "content": user_in})
 
     return {
@@ -618,6 +711,24 @@ def generate_response(state: GraphState) -> dict:
     if not msgs:
         return {"response": ""}
 
+    tool_result = state.get("tool_result") or {}
+    if tool_result.get("type") == "official":
+        return {
+            "response": format_current_official_answer(tool_result),
+            "temperature": 0.0,
+        }
+    if tool_result.get("type") in ("reminder", "memory"):
+        return {"response": tool_result.get("answer", ""), "temperature": 0.0}
+
+    # Do not let a small model turn an explicit boundary into another generic
+    # follow-up question.  A brief acknowledgement is more appropriate.
+    user_input = state.get("user_input", "")
+    if any(phrase in user_input for phrase in ("没心情", "不想说", "别问", "别再问", "你没听懂")):
+        return {
+            "response": "是我刚才没接住你的话，对不起。我不追问了，陪着你。",
+            "temperature": 0.55,
+        }
+
     em = state.get("emotion", {})
     primary = em.get("primary", "neutral") if em else "neutral"
     params = EMOTION_PARAMS.get(primary, EMOTION_PARAMS["neutral"])
@@ -630,7 +741,10 @@ def generate_response(state: GraphState) -> dict:
     else:
         client = _model
         model = QWEN_MODEL
-        extra = {"repetition_penalty": params["repetition_penalty"]}
+        extra = {
+            "repetition_penalty": params["repetition_penalty"],
+            "chat_template_kwargs": QWEN_CHAT_TEMPLATE_KWARGS,
+        }
 
     try:
         r = client.chat.completions.create(
@@ -640,7 +754,7 @@ def generate_response(state: GraphState) -> dict:
             top_p=params.get("top_p", 0.88),
             frequency_penalty=params.get("frequency_penalty", 0.1),
             presence_penalty=params.get("presence_penalty", 0.0),
-            max_tokens=350,
+            max_tokens=220,
             extra_body=extra,
         )
         return {"response": r.choices[0].message.content or "", "temperature": params["temperature"]}
