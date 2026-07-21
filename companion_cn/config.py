@@ -4,9 +4,9 @@ from dotenv import load_dotenv
 
 load_dotenv(os.path.join(os.path.dirname(__file__), "..", ".env"))
 
-# Qwen 3.5 4B (OpenAI-compatible vLLM endpoint)
-QWEN_URL = "http://192.168.253.95:8013/v1"
-QWEN_MODEL = "qwen35-4b"
+# Qwen-compatible endpoint. Keep machine-specific addresses in .env.
+QWEN_URL = os.getenv("QWEN_URL", "http://127.0.0.1:11434/v1")
+QWEN_MODEL = os.getenv("QWEN_MODEL", "qwen3.5:4b")
 # The 4B deployment defaults to visible reasoning.  Companion replies should
 # be concise and conversational, so disable it through vLLM's chat template.
 QWEN_CHAT_TEMPLATE_KWARGS = {"enable_thinking": False}
@@ -18,7 +18,11 @@ DEEPSEEK_MODEL = "deepseek-chat"
 # Set to True to use DeepSeek for generation (much better Chinese, but uses API credits)
 USE_DEEPSEEK_GEN = os.getenv("USE_DEEPSEEK_GEN", "").lower() in ("1", "true", "yes")
 
-DB_PATH = os.path.join(os.path.dirname(__file__), "..", "arrowcanaria_server", "chat_logs.db")
+# Backend used only for extracting user-confirmed memories. Default to the
+# already configured Qwen service when no paid DeepSeek key is selected.
+MEMORY_EXTRACTION_BACKEND = os.getenv("MEMORY_EXTRACTION_BACKEND", "qwen").lower()
+
+DB_PATH = os.path.join(os.path.dirname(__file__), "data", "chat_logs.db")
 # User-controlled memories and reminders must be writable by this service.
 # Keep them separate from legacy shared chat logs, whose directory may be
 # mounted read-only in deployments.
@@ -28,6 +32,23 @@ STATE_DB_PATH = os.path.join(os.path.dirname(__file__), "data", "companion_state
 MAX_CONTEXT = 4
 PORT = 8016
 DEFAULT_CITY = "北京"              # default city for weather queries
+
+# Completed chat record reporting. The browser only signals that a session has
+# ended; the backend reads the authoritative rounds from SQLite and uploads once.
+CHAT_RECORD_ENABLED = os.getenv("CHAT_RECORD_ENABLED", "0").lower() in (
+    "1",
+    "true",
+    "yes",
+)
+CHAT_RECORD_ENDPOINT = os.getenv(
+    "CHAT_RECORD_ENDPOINT",
+    "",
+)
+CHAT_RECORD_RESIDENT_NAME = os.getenv("CHAT_RECORD_RESIDENT_NAME", "")
+CHAT_RECORD_ROOM_NO = os.getenv("CHAT_RECORD_ROOM_NO", "")
+CHAT_RECORD_TIMEOUT_SECONDS = float(os.getenv("CHAT_RECORD_TIMEOUT_SECONDS", "8"))
+CHAT_RECORD_MAX_RETRIES = int(os.getenv("CHAT_RECORD_MAX_RETRIES", "2"))
+CHAT_RECORD_API_TOKEN = os.getenv("CHAT_RECORD_API_TOKEN", "")
 
 # ---------------------------------------------------------------------------
 # Dialect / colloquial styles — selectable via API & frontend

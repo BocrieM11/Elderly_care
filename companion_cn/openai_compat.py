@@ -22,14 +22,14 @@ from datetime import datetime, timezone
 from fastapi import APIRouter, Request
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
-from typing import Optional, Literal
+from typing import Any, Optional, Literal
 from openai import OpenAI
 
 from .config import QWEN_URL, QWEN_MODEL, QWEN_CHAT_TEMPLATE_KWARGS, DEEPSEEK_KEY, DEEPSEEK_URL, DEEPSEEK_MODEL, USE_DEEPSEEK_GEN, DIALECT_STYLES
 from .nodes import (
-    input_guard, emotion_detect, memory_retrieve, context_assemble,
+    input_guard, generate_safety_response, intent_detect, emotion_detect, memory_retrieve, context_assemble,
     generate_response, clean_and_remember,
-    EMOTION_PARAMS, FALLBACKS,
+    remove_virtual_actions, EMOTION_PARAMS, FALLBACKS,
 )
 from .state import GraphState
 
@@ -43,7 +43,7 @@ _ds_client = OpenAI(api_key=DEEPSEEK_KEY, base_url=DEEPSEEK_URL) if DEEPSEEK_KEY
 
 class ChatMessage(BaseModel):
     role: Literal["system", "user", "assistant"]
-    content: str
+    content: str | list[dict[str, Any]]
     name: Optional[str] = None
 
 
@@ -112,25 +112,69 @@ def _build_chunk(content: str, model: str, finish_reason: Optional[str] = None) 
     return chunk
 
 
+def _content_to_text(content: str | list[dict[str, Any]]) -> str:
+    """Normalize OpenAI content parts to the plain text used internally."""
+    if isinstance(content, str):
+        return content
+    return "\n".join(
+        part["text"]
+        for part in content
+        if part.get("type") in ("text", "input_text")
+        and isinstance(part.get("text"), str)
+    )
+
+
+def _content_camera_images(content: str | list[dict[str, Any]]) -> list[dict]:
+    """Keep one validated data-URL image for OLV visual-observer requests."""
+    if not isinstance(content, list):
+        return []
+    for part in reversed(content):
+        if part.get("type") not in ("image_url", "input_image"):
+            continue
+        image_url = part.get("image_url")
+        url = image_url.get("url") if isinstance(image_url, dict) else image_url
+        if (
+            isinstance(url, str)
+            and len(url) <= 2_100_000
+            and url.lower().startswith((
+                "data:image/jpeg;base64,",
+                "data:image/png;base64,",
+                "data:image/webp;base64,",
+            ))
+        ):
+            return [{"type": "image_url", "image_url": {"url": url}}]
+    return []
+
+
 def _build_state(req: ChatCompletionRequest) -> tuple[GraphState, str, str]:
     """Convert OpenAI request to internal state. Returns (state, user_input, sid)."""
     user_in = ""
     for m in reversed(req.messages):
         if m.role == "user":
-            user_in = m.content
+            user_in = _content_to_text(m.content)
             break
 
     sid = req.session_id or uuid.uuid4().hex[:12]
     uid = req.user or "anonymous"
+    visual_images: list[dict] = []
+    for message in reversed(req.messages):
+        if message.role == "user":
+            visual_images = _content_camera_images(message.content)
+            break
 
     state: GraphState = {
         "user_id": uid,
         "session_id": sid,
         "user_input": user_in,
-        "messages": [{"role": m.role, "content": m.content} for m in req.messages],
+        "messages": [
+            {"role": m.role, "content": _content_to_text(m.content)}
+            for m in req.messages
+        ],
+        "visual_images": visual_images,
         "risk_level": 0,
         "risk_label": None,
         "emotion": None,
+        "intent": None,
         "memory_facts": [],
         "system_prompt": "",
         "response": None,
@@ -149,16 +193,20 @@ def _build_state(req: ChatCompletionRequest) -> tuple[GraphState, str, str]:
 @router.post("/chat/completions")
 async def chat_completions(req: ChatCompletionRequest):
     """OpenAI-compatible chat completions. Wraps the full companion pipeline."""
+    if req.stream:
+        return await chat_completions_stream(req)
+
     state, user_in, sid = _build_state(req)
 
     # --- Safety gate ---
     guard = input_guard(state)
     state.update(guard)
     if state.get("risk_level", 0) >= 3:
-        safe = state.get("response", random.choice(FALLBACKS))
+        safe = generate_safety_response(state).get("response", state.get("response", random.choice(FALLBACKS)))
         return _build_chat_completion(safe, req.model, "stop", 0, len(safe))
 
     # --- Full pipeline ---
+    state.update(intent_detect(state))
     state.update(emotion_detect(state))
     state.update(memory_retrieve(state))
     state.update(context_assemble(state))
@@ -168,9 +216,10 @@ async def chat_completions(req: ChatCompletionRequest):
     primary = em.get("primary", "neutral") if em else "neutral"
     params = EMOTION_PARAMS.get(primary, EMOTION_PARAMS["neutral"])
 
-    stream_client = _ds_client if (USE_DEEPSEEK_GEN and _ds_client) else _model_client
-    stream_model = DEEPSEEK_MODEL if (USE_DEEPSEEK_GEN and _ds_client) else QWEN_MODEL
-    extra = {} if (USE_DEEPSEEK_GEN and _ds_client) else {
+    use_deepseek = USE_DEEPSEEK_GEN and _ds_client and not state.get("visual_images")
+    stream_client = _ds_client if use_deepseek else _model_client
+    stream_model = DEEPSEEK_MODEL if use_deepseek else QWEN_MODEL
+    extra = {} if use_deepseek else {
         "repetition_penalty": params["repetition_penalty"],
         "chat_template_kwargs": QWEN_CHAT_TEMPLATE_KWARGS,
     }
@@ -195,7 +244,7 @@ async def chat_completions(req: ChatCompletionRequest):
     # Post-processing
     state["response"] = raw
     clean_state = clean_and_remember(state)
-    cleaned = clean_state.get("response_cleaned", raw)
+    cleaned = remove_virtual_actions(clean_state.get("response_cleaned", raw))
 
     return _build_chat_completion(cleaned, req.model, "stop", 0, len(cleaned))
 
@@ -212,13 +261,14 @@ async def chat_completions_stream(req: ChatCompletionRequest):
     state.update(guard)
     if state.get("risk_level", 0) >= 3:
         async def safe_stream():
-            safe = state.get("response", random.choice(FALLBACKS))
+            safe = generate_safety_response(state).get("response", state.get("response", random.choice(FALLBACKS)))
             chunk = json.dumps(_build_chunk(safe, req.model, "stop"), ensure_ascii=False)
             yield f"data: {chunk}\n\n"
             yield "data: [DONE]\n\n"
         return StreamingResponse(safe_stream(), media_type="text/event-stream")
 
     # --- Full pipeline ---
+    state.update(intent_detect(state))
     state.update(emotion_detect(state))
     state.update(memory_retrieve(state))
     state.update(context_assemble(state))
@@ -228,9 +278,10 @@ async def chat_completions_stream(req: ChatCompletionRequest):
     primary = em.get("primary", "neutral") if em else "neutral"
     params = EMOTION_PARAMS.get(primary, EMOTION_PARAMS["neutral"])
 
-    stream_client = _ds_client if (USE_DEEPSEEK_GEN and _ds_client) else _model_client
-    stream_model = DEEPSEEK_MODEL if (USE_DEEPSEEK_GEN and _ds_client) else QWEN_MODEL
-    extra = {} if (USE_DEEPSEEK_GEN and _ds_client) else {
+    use_deepseek = USE_DEEPSEEK_GEN and _ds_client and not state.get("visual_images")
+    stream_client = _ds_client if use_deepseek else _model_client
+    stream_model = DEEPSEEK_MODEL if use_deepseek else QWEN_MODEL
+    extra = {} if use_deepseek else {
         "repetition_penalty": params["repetition_penalty"],
         "chat_template_kwargs": QWEN_CHAT_TEMPLATE_KWARGS,
     }
@@ -262,8 +313,9 @@ async def chat_completions_stream(req: ChatCompletionRequest):
             for chunk in stream:
                 delta = chunk.choices[0].delta.content if chunk.choices else ""
                 if delta:
-                    full_response += delta
-                    chunk_json = json.dumps(_build_chunk(delta, req.model), ensure_ascii=False)
+                    safe_delta = remove_virtual_actions(delta)
+                    full_response += safe_delta
+                    chunk_json = json.dumps(_build_chunk(safe_delta, req.model), ensure_ascii=False)
                     yield f"data: {chunk_json}\n\n"
 
             # Done

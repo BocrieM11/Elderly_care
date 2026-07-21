@@ -4,6 +4,7 @@ import sqlite3
 from datetime import datetime, timedelta, timezone
 
 from .config import STATE_DB_PATH
+from .safety import scan
 
 # The bundled Windows Python does not include IANA tzdata. China Standard Time
 # has no daylight-saving transition, so an explicit UTC+8 zone is reliable.
@@ -52,7 +53,15 @@ def _as_dict(row: sqlite3.Row) -> dict:
     return item
 
 
+def _unsafe_reminder_content(content: str) -> bool:
+    """Never persist or activate reminders that facilitate physical harm."""
+    _, label, _ = scan(content)
+    return label in ("self_harm", "violence")
+
+
 def create_pending(user_id: str, content: str, due_at: datetime, repeat_rule: str = "") -> dict:
+    if _unsafe_reminder_content(content):
+        raise ValueError("unsafe reminder content")
     now = _iso(_now())
     with _conn() as db:
         cur = db.execute(
@@ -87,6 +96,9 @@ def _latest(user_id: str, statuses: tuple[str, ...]) -> dict | None:
 def confirm_latest(user_id: str) -> dict | None:
     reminder = _latest(user_id, ("pending_confirmation",))
     if not reminder:
+        return None
+    if _unsafe_reminder_content(reminder["content"]):
+        cancel_reminder(user_id, reminder["id"])
         return None
     now = _iso(_now())
     with _conn() as db:
@@ -203,6 +215,9 @@ def get_reminder(user_id: str, reminder_id: int) -> dict | None:
 def activate_reminder(user_id: str, reminder_id: int) -> dict | None:
     reminder = get_reminder(user_id, reminder_id)
     if not reminder or reminder["status"] != "pending_confirmation":
+        return None
+    if _unsafe_reminder_content(reminder["content"]):
+        cancel_reminder(user_id, reminder_id)
         return None
     with _conn() as db:
         db.execute("UPDATE reminders SET status='active', updated_at=? WHERE id=? AND user_id=?", (_iso(_now()), reminder_id, user_id))

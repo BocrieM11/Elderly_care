@@ -7,6 +7,7 @@ class GraphState(TypedDict):
     session_id: str
     user_input: str
     messages: list  # OpenAI-format [{"role":"...","content":"..."}]
+    visual_images: list[dict]  # Current-turn OpenAI image_url blocks from the camera
 
     # Safety
     risk_level: int                 # 0-4
@@ -14,6 +15,7 @@ class GraphState(TypedDict):
 
     # Emotion
     emotion: Optional[dict]
+    intent: Optional[dict]
 
     # Memory
     memory_facts: list[str]         # facts about this user from SQLite

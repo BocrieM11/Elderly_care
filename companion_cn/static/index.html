@@ -80,12 +80,12 @@
     box-shadow: 0 8px 22px rgba(62, 48, 42, .16);
   }
   .video-stage video { width:100%; height:100%; object-fit:cover; display:block; background:#24282d; }
-  .video-placeholder { position:absolute; inset:0; display:flex; align-items:center; justify-content:center; flex-direction:column; gap:12px; color:#fff; text-align:center; padding:24px; pointer-events:none; background:linear-gradient(180deg, rgba(0,0,0,.08), rgba(0,0,0,.3)); }
-  .video-placeholder .camera-icon { width:58px; height:58px; border-radius:50%; display:grid; place-items:center; background:rgba(255,255,255,.18); font-size:26px; }
-  .video-placeholder strong { font-size:16px; }
-  .video-placeholder span { font-size:13px; line-height:1.6; color:rgba(255,255,255,.82); }
-  .video-note { border:1px dashed #dccfc2; border-radius:14px; background:#fff; padding:12px 14px; color:var(--text-light); font-size:12px; line-height:1.65; }
-  .video-note b { display:block; color:var(--text); margin-bottom:3px; font-size:13px; }
+  .video-placeholder { position:absolute; inset:0; pointer-events:none; background:linear-gradient(180deg, rgba(0,0,0,.08), rgba(0,0,0,.3)); }
+  .camera-controls { display:flex; gap:8px; }
+  .camera-toggle { flex:1; border:0; border-radius:12px; padding:10px 14px; background:var(--accent); color:#fff; cursor:pointer; font:600 13px inherit; transition:opacity .2s, transform .2s; }
+  .camera-toggle:hover { transform:translateY(-1px); }
+  .camera-toggle:disabled { cursor:wait; opacity:.6; transform:none; }
+  .camera-toggle.active { background:#7b6a5d; }
   .reminder-center-button { display:inline-flex; align-items:center; gap:5px; background:#fff; border:1px solid var(--border); padding:5px 10px; border-radius:14px; font-size:12px; color:var(--accent); cursor:pointer; font-family:inherit; }
   .reminder-badge { display:none; min-width:16px; padding:0 4px; border-radius:9px; background:#d66b55; color:#fff; font-size:10px; line-height:16px; text-align:center; }
   .reminder-modal { position:fixed; inset:0; z-index:1200; display:none; align-items:center; justify-content:center; padding:20px; background:rgba(57,43,36,.38); }
@@ -220,12 +220,6 @@
     display: flex; gap: 10px; flex: 0 0 auto;
     position: relative; z-index: 2;
   }
-  .input-area input {
-    flex: 1; padding: 12px 18px;
-    border: 2px solid var(--border); border-radius: 28px;
-    font-size: 15px; outline: none; transition: border .2s;
-  }
-  .input-area input:focus { border-color: var(--accent); }
   .input-area button {
     padding: 12px 28px;
     background: var(--accent); color: #fff;
@@ -236,6 +230,9 @@
   }
   .input-area button:hover { background: #b06a50; }
   .input-area button:disabled { opacity: .5; cursor: not-allowed; }
+  .input-area #micBtn { background:#fff; color:var(--accent); border:1px solid var(--accent); white-space:nowrap; }
+  .input-area #micBtn.recording { background:#c94c4c; color:#fff; border-color:#c94c4c; }
+  .voice-status { align-self:center; color:var(--text-light); font-size:12px; white-space:nowrap; }
 
   /* Log panel */
   .log-panel {
@@ -313,11 +310,65 @@
     main { display:flex; flex-direction:column; height:0; overflow-y:auto; overflow-x:hidden; }
     .video-panel { padding:12px 14px; border-right:0; border-bottom:1px solid var(--border); }
     .video-stage { aspect-ratio:16/8; min-height:150px; }
-    .video-note { display:none; }
     .chat-panel { min-height:55vh; height:auto; max-height:none; flex:1 0 auto; }
     .log-panel { display: none; }
     .messages { height:auto; padding:16px; min-height:280px; max-height:58vh; overflow-y:auto; }
     .input-area { padding:12px 14px 16px; }
+  }
+
+  /* Independent draggable digital companion imported from the avatar branch. */
+  #digitalAvatarPanel {
+    position: fixed;
+    left: 22px;
+    bottom: 22px;
+    z-index: 500;
+    width: min(238px, 30vw);
+    min-width: 180px;
+    aspect-ratio: 4 / 5;
+    background: transparent;
+    cursor: grab;
+    touch-action: none;
+    user-select: none;
+    filter: drop-shadow(0 12px 18px rgba(58, 43, 36, .24));
+  }
+  #digitalAvatarPanel.dragging { cursor: grabbing; }
+  #digitalAvatarPanel #avatarCutout {
+    position: absolute;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+    object-fit: contain;
+    display: block;
+    pointer-events: none;
+    -webkit-user-drag: none;
+  }
+  #digitalAvatarPanel.action-change #avatarCutout {
+    animation: avatarActionPop .32s ease-out;
+  }
+  #digitalAvatarPanel .avatar-caption {
+    position: absolute;
+    left: 10px;
+    bottom: 10px;
+    z-index: 2;
+    padding: 5px 9px;
+    border-radius: 999px;
+    background: rgba(61,48,43,.68);
+    color: #fff;
+    font-size: 11px;
+    letter-spacing: .04em;
+    pointer-events: none;
+  }
+  @keyframes avatarActionPop {
+    0% { opacity: .55; transform: scale(.96); }
+    100% { opacity: 1; transform: scale(1); }
+  }
+  @media (max-width: 760px) {
+    #digitalAvatarPanel {
+      left: 12px;
+      bottom: 12px;
+      width: min(158px, 42vw);
+      min-width: 128px;
+    }
   }
 </style>
 </head>
@@ -342,27 +393,25 @@
   <aside class="video-panel" aria-label="视频通话区域">
     <div class="video-heading">
       <h2>视频陪伴</h2>
-      <span class="video-status" id="videoStatus">摄像头待接入</span>
+      <span class="video-status" id="videoStatus">摄像头已关闭</span>
     </div>
     <div class="video-stage" id="videoStage">
-      <!-- 后续视频模块将把 MediaStream 绑定到 companionVideo.srcObject。 -->
       <video id="companionVideo" autoplay playsinline muted></video>
-      <div class="video-placeholder" id="videoPlaceholder">
-        <div class="camera-icon">📹</div>
-        <strong>视频画面会显示在这里</strong>
-        <span>后续开启摄像头后，可在此显示实时画面。</span>
-      </div>
+      <div class="video-placeholder" id="videoPlaceholder"></div>
     </div>
-    <div class="video-note">
-      <b>视频尚未开启</b>
-      这里已预留真实视频元素和画面状态。接入摄像头后，不需要再改聊天布局。
+    <div class="camera-controls">
+      <button class="camera-toggle" id="cameraToggle" type="button" onclick="companionCamera.toggle()">开启摄像头</button>
     </div>
+  </aside>
+  <aside id="digitalAvatarPanel" aria-label="可拖动的数字人陪伴">
+    <img id="avatarCutout" src="/avatar/welcome_wave_isnet_clean_pingpong.png?v=pingpong1" alt="暖暖陪伴数字人">
+    <div class="avatar-caption" id="avatarCaption">欢迎陪伴</div>
   </aside>
   <div class="chat-panel">
     <div class="messages" id="messages"></div>
     <div class="input-area">
-      <input id="msgInput" type="text" placeholder="随便聊聊吧…" autocomplete="off">
-      <button id="sendBtn" onclick="send()">发送</button>
+      <button id="micBtn" type="button" onclick="companionVoice.toggle()">🎙 正在开启语音识别…</button>
+      <span class="voice-status" id="voiceStatus">语音检测中</span>
     </div>
   </div>
 
@@ -372,7 +421,7 @@
       <div style="display:flex;gap:6px;">
         <button onclick="showHistory()">历史</button>
         <button onclick="exportLog()">导出</button>
-        <button onclick="clearLog()">清空</button>
+        <button onclick="clearLog()">结束本次聊天</button>
       </div>
     </div>
     <div class="log-list" id="logList">
@@ -430,6 +479,19 @@
 </div>
 
 <script>
+// Tailscale Serve exposes /v1 on the same HTTPS origin. Local HTTP access on
+// port 12393 still talks directly to the Companion service on port 8016.
+const COMPANION_API_ORIGIN = window.location.port === '8016' || window.location.protocol === 'https:'
+  ? ''
+  : `${window.location.protocol}//${window.location.hostname}:8016`;
+const browserFetch = window.fetch.bind(window);
+window.fetch = (resource, options) => {
+  if (typeof resource === 'string' && (resource.startsWith('/v1/langgraph/') || resource.startsWith('/v1/media/'))) {
+    resource = COMPANION_API_ORIGIN + resource;
+  }
+  return browserFetch(resource, options);
+};
+
 const API = '/v1/langgraph/chat/stream';
 
 let sessionId = 's' + Date.now().toString(36) + Math.random().toString(36).slice(2,6);
@@ -453,6 +515,231 @@ let activeReminder = null;
 let pendingReminder = null;
 let reminderModalTimer = null;
 let reminderCenterOpen = false;
+
+const companionCamera = (() => {
+  const video = document.getElementById('companionVideo');
+  const placeholder = document.getElementById('videoPlaceholder');
+  const status = document.getElementById('videoStatus');
+  const button = document.getElementById('cameraToggle');
+  const canvas = document.createElement('canvas');
+  let stream = null;
+
+  function updateUi(mode) {
+    const active = mode === 'active';
+    status.textContent = active ? '摄像头已开启' : mode === 'error' ? '摄像头不可用' : '摄像头已关闭';
+    button.textContent = active ? '关闭摄像头' : '开启摄像头';
+    button.classList.toggle('active', active);
+    placeholder.style.display = active ? 'none' : 'flex';
+  }
+
+  function stop() {
+    if (stream) stream.getTracks().forEach(track => track.stop());
+    stream = null;
+    video.srcObject = null;
+    updateUi('idle');
+  }
+
+  async function start() {
+    if (!navigator.mediaDevices?.getUserMedia) {
+      updateUi('error');
+      return;
+    }
+    button.disabled = true;
+    status.textContent = '正在请求权限';
+    try {
+      // This runs inside the camera button's user gesture and unlocks later
+      // wave-triggered TTS playback on browsers with autoplay restrictions.
+      window.companionVoice?.prepare?.();
+      stream = await navigator.mediaDevices.getUserMedia({
+        video: {
+          width: { ideal: 640 },
+          height: { ideal: 480 },
+          facingMode: 'user',
+        },
+        audio: false,
+      });
+      video.srcObject = stream;
+      await video.play();
+      stream.getVideoTracks().forEach(track => {
+        track.addEventListener('ended', () => {
+          if (stream) stop();
+        }, { once: true });
+      });
+      updateUi('active');
+    } catch (error) {
+      console.error('Failed to start camera:', error);
+      if (stream) stream.getTracks().forEach(track => track.stop());
+      stream = null;
+      video.srcObject = null;
+      updateUi('error');
+    } finally {
+      button.disabled = false;
+    }
+  }
+
+  async function toggle() {
+    if (stream) stop();
+    else await start();
+  }
+
+  function isActive() {
+    return Boolean(stream && stream.active && video.readyState >= 2);
+  }
+
+  function capture() {
+    if (!isActive()) return null;
+    const sourceWidth = video.videoWidth || 640;
+    const sourceHeight = video.videoHeight || 480;
+    const width = Math.min(640, sourceWidth);
+    const height = Math.max(1, Math.round(sourceHeight * (width / sourceWidth)));
+    canvas.width = width;
+    canvas.height = height;
+    const context = canvas.getContext('2d', { alpha: false });
+    if (!context) return null;
+    context.drawImage(video, 0, 0, width, height);
+    return {
+      data: canvas.toDataURL('image/jpeg', 0.76),
+      mime_type: 'image/jpeg',
+      captured_at_ms: Date.now(),
+    };
+  }
+
+  window.addEventListener('beforeunload', stop);
+  return { toggle, capture, isActive };
+})();
+window.companionCamera = companionCamera;
+
+const digitalAvatar = (() => {
+  const panel = document.getElementById('digitalAvatarPanel');
+  const image = document.getElementById('avatarCutout');
+  const caption = document.getElementById('avatarCaption');
+  const actions = {
+    welcome:      { src: '/avatar/welcome_wave_isnet_clean_pingpong.png?v=pingpong1', label: '欢迎陪伴' },
+    encourage:    { src: '/avatar/encourage_clap_isnet_clean_pingpong.png?v=pingpong1', label: '鼓励陪伴' },
+    thanks:       { src: '/avatar/thank_you_bow_isnet_clean_pingpong.png?v=pingpong1', label: '感谢祝福' },
+    comfort:      { src: '/avatar/warm_hug_isnet_clean_pingpong.png?v=pingpong1', label: '暖心安慰' },
+    care:         { src: '/avatar/caring_nod_isnet_clean_pingpong.png?v=pingpong1', label: '关心陪伴' },
+    stretch:      { src: '/avatar/gentle_stretch_isnet_clean_pingpong.png?v=pingpong1', label: '活动引导' },
+    dance:        { src: '/avatar/dance_happy_transparent_pingpong.png?v=pingpong1', label: '开心舞蹈' },
+    big_welcome:  { src: '/avatar/big_welcome_wave_transparent_pingpong.png?v=pingpong1', label: '热情欢迎' },
+    celebrate:    { src: '/avatar/jump_celebrate_transparent_pingpong.png?v=pingpong1', label: '庆祝时刻' },
+    big_comfort:  { src: '/avatar/big_comfort_hug_transparent_pingpong.png?v=pingpong1', label: '温暖拥抱' },
+    cheer:        { src: '/avatar/cheer_up_transparent_pingpong.png?v=pingpong1', label: '为您加油' },
+    full_stretch: { src: '/avatar/full_stretch_transparent_pingpong.png?v=pingpong1', label: '全身伸展' },
+    side_stretch: { src: '/avatar/side_stretch_transparent_pingpong.png?v=pingpong1', label: '侧身伸展' },
+    march:        { src: '/avatar/march_in_place_transparent_pingpong.png?v=pingpong1', label: '原地踏步' },
+    surprise:     { src: '/avatar/big_surprise_transparent_pingpong.png?v=pingpong1', label: '惊喜一下' },
+    goodnight:    { src: '/avatar/goodnight_big_wave_transparent_pingpong.png?v=pingpong1', label: '晚安陪伴' },
+  };
+  const idleActions = ['welcome', 'care', 'stretch'];
+  let currentAction = 'welcome';
+  let resetTimer = null;
+  let idleTimer = null;
+  let loadGeneration = 0;
+
+  function scheduleIdleRotation() {
+    clearTimeout(idleTimer);
+    idleTimer = setTimeout(() => {
+      const choices = idleActions.filter(action => action !== currentAction);
+      play(choices[Math.floor(Math.random() * choices.length)] || 'welcome');
+    }, 10000 + Math.random() * 6000);
+  }
+
+  function applyAction(action, item, generation) {
+    if (generation !== loadGeneration) return;
+    currentAction = action;
+    image.src = item.src;
+    image.alt = `暖暖陪伴数字人：${item.label}`;
+    caption.textContent = item.label;
+    panel.classList.remove('action-change');
+    void panel.offsetWidth;
+    panel.classList.add('action-change');
+    if (action !== 'welcome') {
+      const delay = ['comfort', 'big_comfort', 'care'].includes(action) ? 6500 : 3200;
+      resetTimer = setTimeout(() => play('welcome'), delay);
+    } else {
+      scheduleIdleRotation();
+    }
+  }
+
+  function play(action) {
+    const item = actions[action] || actions.care;
+    const selectedAction = actions[action] ? action : 'care';
+    clearTimeout(resetTimer);
+    clearTimeout(idleTimer);
+    const generation = ++loadGeneration;
+    if (image.getAttribute('src') === item.src || image.src.endsWith(item.src)) {
+      applyAction(selectedAction, item, generation);
+      return;
+    }
+    const preload = new Image();
+    preload.onload = () => applyAction(selectedAction, item, generation);
+    preload.onerror = () => {
+      if (generation === loadGeneration && currentAction !== 'welcome') play('welcome');
+    };
+    preload.src = item.src;
+  }
+
+  const storageKey = 'companion-avatar-position-v1';
+  let dragging = false;
+  let offsetX = 0;
+  let offsetY = 0;
+
+  function clamp(left, top) {
+    const rect = panel.getBoundingClientRect();
+    return {
+      left: Math.max(0, Math.min(left, window.innerWidth - rect.width)),
+      top: Math.max(0, Math.min(top, window.innerHeight - rect.height)),
+    };
+  }
+
+  function place(left, top, persist = true) {
+    const position = clamp(left, top);
+    panel.style.left = `${Math.round(position.left)}px`;
+    panel.style.top = `${Math.round(position.top)}px`;
+    panel.style.bottom = 'auto';
+    if (persist) localStorage.setItem(storageKey, JSON.stringify(position));
+  }
+
+  try {
+    const saved = JSON.parse(localStorage.getItem(storageKey) || 'null');
+    if (saved && Number.isFinite(saved.left) && Number.isFinite(saved.top)) {
+      place(saved.left, saved.top, false);
+    }
+  } catch (_) {
+    // Ignore an invalid browser-local position.
+  }
+
+  panel.addEventListener('pointerdown', event => {
+    if (event.button !== undefined && event.button !== 0) return;
+    const rect = panel.getBoundingClientRect();
+    dragging = true;
+    offsetX = event.clientX - rect.left;
+    offsetY = event.clientY - rect.top;
+    panel.classList.add('dragging');
+    panel.setPointerCapture?.(event.pointerId);
+    event.preventDefault();
+  });
+  panel.addEventListener('pointermove', event => {
+    if (dragging) place(event.clientX - offsetX, event.clientY - offsetY);
+  });
+  function stopDragging(event) {
+    if (!dragging) return;
+    dragging = false;
+    panel.classList.remove('dragging');
+    panel.releasePointerCapture?.(event?.pointerId);
+  }
+  panel.addEventListener('pointerup', stopDragging);
+  panel.addEventListener('pointercancel', stopDragging);
+  window.addEventListener('resize', () => {
+    const rect = panel.getBoundingClientRect();
+    if (panel.style.top) place(rect.left, rect.top);
+  });
+
+  scheduleIdleRotation();
+  return { play };
+})();
+window.digitalAvatar = digitalAvatar;
 
 function updateNotificationButton() {
   const button = document.getElementById('notificationButton');
@@ -535,7 +822,15 @@ async function confirmReminderFromModal() {
       body: JSON.stringify({ user_id: userId }),
     });
     const data = await response.json();
-    if (!response.ok || !data.ok) throw new Error('confirmation failed');
+    if (!response.ok || !data.ok) {
+      if (data.response) {
+        hideReminderConfirmModal();
+        addBubble('li', escapeHtml(data.response), 'li');
+        scrollDown();
+        return;
+      }
+      throw new Error('confirmation failed');
+    }
     hideReminderConfirmModal();
     addBubble('li', escapeHtml('已经设置好提醒。'), 'li');
     scrollDown();
@@ -688,10 +983,9 @@ function onDialectChange() {
 }
 
 const msgDiv = document.getElementById('messages');
-const input = document.getElementById('msgInput');
-const sendBtn = document.getElementById('sendBtn');
 const logList = document.getElementById('logList');
 const logCount = document.getElementById('logCount');
+let messageSendBusy = false;
 
 function timeStr() {
   const d = new Date();
@@ -751,13 +1045,41 @@ function setPetState(state, duration) {
   }
 }
 
-async function send() {
-  const text = input.value.trim();
-  if (!text) return;
-  input.value = '';
-  sendBtn.disabled = true;
+let activeChatAbortController = null;
+let activeChatCompletion = Promise.resolve();
 
-  addBubble('user', text, 'user');
+function interruptAssistantTurn() {
+  const completion = activeChatCompletion;
+  if (activeChatAbortController && !activeChatAbortController.signal.aborted) {
+    activeChatAbortController.abort();
+  }
+  return completion;
+}
+
+window.interruptAssistantTurn = interruptAssistantTurn;
+
+async function send(options = {}) {
+  const internalEvent = options.internalEvent || null;
+  const text = String(options.text || '').trim();
+  const loggedUserText = internalEvent
+    ? (internalEvent.event_type === 'fall_detected'
+      ? '安全关怀（检测到跌倒）'
+      : internalEvent.event_type === 'wave_detected'
+        ? '主动问候（检测到挥手）'
+        : internalEvent.event_type === 'voice_wake_detected'
+          ? `主动问候（语音唤醒：${internalEvent.wake_phrase || ''}）`
+        : '主动关怀（检测到坐起）')
+    : text;
+  if (!text) return;
+  if (messageSendBusy) return false;
+  const turnAbortController = new AbortController();
+  let resolveTurnCompletion;
+  activeChatCompletion = new Promise(resolve => { resolveTurnCompletion = resolve; });
+  activeChatAbortController = turnAbortController;
+  companionVoice.begin();
+  messageSendBusy = true;
+
+  if (!internalEvent) addBubble('user', text, 'user');
 
   if (messages.length === 0) {
     messages.push({ role: 'system', content: '' });
@@ -774,15 +1096,22 @@ async function send() {
   const bubble = replyRow.querySelector('.msg-bubble');
 
   try {
+    const images = [];
+    if (!internalEvent && companionCamera.isActive()) {
+      const frame = companionCamera.capture();
+      if (frame) images.push(frame);
+    }
     const res = await fetch(API, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
+      signal: turnAbortController.signal,
       body: JSON.stringify({
         message: text,
         messages: messages,
         user_id: userId,
         session_id: sessionId,
         dialect: currentDialect,
+        images: images,
       }),
     });
     if (!res.ok || !res.body) {
@@ -793,33 +1122,52 @@ async function send() {
     const decoder = new TextDecoder();
     let reply = '';
     let finalEmotion = null;
+    let finalAvatarAction = null;
     let newsContext = null;
     let reminderContext = null;
+    let streamError = null;
 
+    const consumeSseLine = rawLine => {
+      const line = rawLine.replace(/\r$/, '');
+      if (!line.startsWith('data: ')) return;
+      try {
+        const c = JSON.parse(line.slice(6));
+        if (c.token && !c.done) {
+          reply += c.token;
+          companionVoice.push(c.token);
+          bubble.textContent = reply;
+          scrollDown();
+        }
+        if (c.done) {
+          finalEmotion = c.emotion || null;
+          finalAvatarAction = c.avatar_action || null;
+          newsContext = c.news || null;
+          reminderContext = c.reminder || null;
+          streamError = c.error || null;
+        }
+      } catch (error) {
+        console.warn('忽略无效的 SSE 数据行', error);
+      }
+    };
+
+    let sseBuffer = '';
     while (true) {
       const { done, value } = await reader.read();
-      if (done) break;
-      const chunk = decoder.decode(value, { stream: true });
-      const lines = chunk.split('\n');
-      for (const line of lines) {
-        if (!line.startsWith('data: ')) continue;
-        try {
-          const c = JSON.parse(line.slice(6));
-          if (c.token && !c.done) {
-            reply += c.token;
-            bubble.textContent = reply;
-            scrollDown();
-          }
-          if (c.done) {
-            finalEmotion = c.emotion || null;
-            newsContext = c.news || null;
-            reminderContext = c.reminder || null;
-          }
-        } catch (e) {}
+      sseBuffer += decoder.decode(value || new Uint8Array(), { stream: !done });
+      let newlineIndex;
+      while ((newlineIndex = sseBuffer.indexOf('\n')) >= 0) {
+        consumeSseLine(sseBuffer.slice(0, newlineIndex));
+        sseBuffer = sseBuffer.slice(newlineIndex + 1);
+      }
+      if (done) {
+        if (sseBuffer) consumeSseLine(sseBuffer);
+        break;
       }
     }
 
+    if (streamError) throw new Error(streamError);
     if (!reply) reply = '（网络不太稳，再试一次…）';
+    companionVoice.finish();
     messages.push({ role: 'assistant', content: reply });
     if (reminderContext && reminderContext.requires_confirmation) {
       showReminderConfirmModal(reminderContext);
@@ -846,24 +1194,30 @@ async function send() {
       const petState = emotionToPet[finalEmotion.primary] || 'neutral';
       setPetState(petState, petState === 'sadness' || petState === 'loneliness' ? 5000 : 3000);
     }
+    window.digitalAvatar?.play(finalAvatarAction || 'care');
 
     // Save to server
     roundNum++;
-    fetch('/v1/langgraph/log', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        session_id: sessionId,
-        prompt_type: 'cn',
-        round_number: roundNum,
-        user_message: text,
-        sakura_reply: reply,
-      }),
-    }).catch(() => {});
+    try {
+      await fetch('/v1/langgraph/log', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        signal: turnAbortController.signal,
+        body: JSON.stringify({
+          session_id: sessionId,
+          prompt_type: 'cn',
+          round_number: roundNum,
+          user_message: loggedUserText,
+          sakura_reply: reply,
+        }),
+      });
+    } catch (error) {
+      console.warn('聊天记录保存失败', error);
+    }
 
     const now = new Date();
     rounds.push({
-      user: text,
+      user: loggedUserText,
       reply: reply,
       time: now.toLocaleString('zh-CN', { hour: '2-digit', minute: '2-digit', second: '2-digit' }),
       emotion: finalEmotion || null,
@@ -872,12 +1226,187 @@ async function send() {
     saveLog();
 
   } catch (e) {
-    bubble.textContent = '（网络不太好，稍等再试试…）';
-    console.error(e);
+    if (e?.name === 'AbortError') {
+      bubble.textContent = '（已被您打断）';
+    } else {
+      companionVoice.cancel();
+      bubble.textContent = '（网络不太好，稍等再试试…）';
+      console.error(e);
+    }
   }
 
-  sendBtn.disabled = false;
-  input.focus();
+  if (activeChatAbortController === turnAbortController) activeChatAbortController = null;
+  messageSendBusy = false;
+  resolveTurnCompletion();
+  return true;
+}
+
+// ====== OLV 起床与跌倒事件主动关怀 ======
+const detectionConsumerId = (() => {
+  const storageKey = 'olv_detection_consumer_id';
+  let value = localStorage.getItem(storageKey);
+  if (!value) {
+    value = 'companion_' + (crypto.randomUUID ? crypto.randomUUID() : Date.now());
+    localStorage.setItem(storageKey, value);
+  }
+  return value;
+})();
+const proactiveEventQueue = [];
+let proactiveEventRunning = false;
+let detectionEventSocket = null;
+
+function detectionEventPrompt(event) {
+  return '[系统内部事件，不是用户说的话] 用户刚刚从床上坐起。' +
+    '请自然、温和、简短地主动开启对话，用一到两句话打招呼并轻轻询问睡眠或身体感受。' +
+    '不要提到摄像头、检测系统、事件、报警、一级离床或坐起识别，' +
+    '不要断言用户生病或处于危险中，也不要一次连续追问多个问题。' +
+    '事件时间：' + event.occurred_at;
+}
+
+const FALL_SAFETY_MESSAGE =
+  '您还好吗？刚才是不是发生了意外？先别急着起身。' +
+  '请告诉我有没有撞到头、明显疼痛、出血或无法活动，您现在需要帮助吗？' +
+  '如果有这些情况，或不能安全起身，请立即拨打120，或者大声呼叫身边的人、家属或护工。';
+
+async function speakFixedFallResponse(event) {
+  messageSendBusy = true;
+  companionVoice.begin();
+  window.digitalAvatar?.play('big_comfort');
+
+  if (messages.length === 0) messages.push({ role: 'system', content: '' });
+  messages.push({
+    role: 'system',
+    content: '[安全上下文] 系统发现用户可能刚刚跌倒。你不能拨打电话、呼叫急救或联系任何人。' +
+      '绝对不要提出代叫救护车、代报警或代联系家属护工。后续应先确认用户能否回应、' +
+      '是否撞到头、明显疼痛、出血或无法活动；如有严重情况，指导用户自己拨打120或呼喊身边人。' +
+      '事件时间：' + event.occurred_at,
+  });
+  messages.push({ role: 'assistant', content: FALL_SAFETY_MESSAGE });
+
+  addBubble('li', FALL_SAFETY_MESSAGE, 'li');
+  companionVoice.push(FALL_SAFETY_MESSAGE);
+  companionVoice.finish();
+
+  roundNum++;
+  fetch('/v1/langgraph/log', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      session_id: sessionId,
+      prompt_type: 'cn',
+      round_number: roundNum,
+      user_message: '安全关怀（检测到跌倒）',
+      sakura_reply: FALL_SAFETY_MESSAGE,
+    }),
+  }).catch(() => {});
+
+  rounds.push({
+    user: '安全关怀（检测到跌倒）',
+    reply: FALL_SAFETY_MESSAGE,
+    time: new Date().toLocaleString('zh-CN', {
+      hour: '2-digit', minute: '2-digit', second: '2-digit',
+    }),
+    emotion: null,
+  });
+  updateLog();
+  saveLog();
+  messageSendBusy = false;
+}
+
+function enqueueProactiveEvent(event) {
+  if (event.event_type === 'fall_detected') proactiveEventQueue.unshift(event);
+  else proactiveEventQueue.push(event);
+  void drainProactiveEvents();
+}
+
+const WAKE_ACKNOWLEDGEMENT = '我在呢';
+
+function appendWakeAcknowledgement() {
+  addBubble('li', WAKE_ACKNOWLEDGEMENT, 'li');
+  if (messages.length === 0) messages.push({ role: 'system', content: '' });
+  messages.push({ role: 'assistant', content: WAKE_ACKNOWLEDGEMENT });
+}
+
+function speakWakeAcknowledgement(source, options = {}) {
+  if (!options.preserveWakeCapture) {
+    window.companionVoice?.activateConversation?.(source);
+  }
+  if (!options.audioOnly) appendWakeAcknowledgement();
+  if (options.visualOnly) return;
+  window.digitalAvatar?.play('welcome');
+  window.companionVoice?.speak?.(WAKE_ACKNOWLEDGEMENT, {
+    preserveWakeCapture: Boolean(options.preserveWakeCapture),
+  });
+}
+
+window.companionWaveGreeting = async function companionWaveGreeting() {
+  // A wave is the conversational wake-up gesture. Microphone permission may
+  // be requested the first time; after it is granted no voice button is needed.
+  const voiceReady = await window.companionVoice?.start?.();
+  if (!window.companionVoice?.isConversationAwake?.()) {
+    speakWakeAcknowledgement('wave');
+  }
+  return voiceReady !== false;
+};
+
+window.companionVoiceWakeup = async function companionVoiceWakeup(_wake, options = {}) {
+  speakWakeAcknowledgement('voice-wake', options);
+  return true;
+};
+
+async function drainProactiveEvents() {
+  if (proactiveEventRunning) return;
+  proactiveEventRunning = true;
+  try {
+    while (proactiveEventQueue.length) {
+      while (messageSendBusy) {
+        await new Promise(resolve => setTimeout(resolve, 500));
+      }
+      const event = proactiveEventQueue.shift();
+      if (event.event_type === 'fall_detected') {
+        await speakFixedFallResponse(event);
+      } else if (event.event_type === 'wave_detected' || event.event_type === 'voice_wake_detected') {
+        const voiceReady = await window.companionVoice?.start?.();
+        if (voiceReady !== false && !window.companionVoice?.isConversationAwake?.()) {
+          speakWakeAcknowledgement(event.event_type === 'wave_detected' ? 'wave' : 'voice-wake');
+        }
+      } else {
+        await send({ text: detectionEventPrompt(event), internalEvent: event });
+      }
+    }
+  } finally {
+    proactiveEventRunning = false;
+  }
+}
+
+function connectDetectionEvents() {
+  if (detectionEventSocket &&
+      (detectionEventSocket.readyState === WebSocket.OPEN ||
+       detectionEventSocket.readyState === WebSocket.CONNECTING)) return;
+
+  const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+  const url = protocol + '//' + window.location.host +
+    '/api/detection-events/ws?consumer_id=' + encodeURIComponent(detectionConsumerId);
+  const socket = new WebSocket(url);
+  detectionEventSocket = socket;
+
+  socket.onmessage = event => {
+    try {
+      const data = JSON.parse(event.data);
+      const eventType = data.event?.event_type;
+      if (data.type === 'detection-event' &&
+          (eventType === 'sit_up' || eventType === 'fall_detected')) {
+        enqueueProactiveEvent(data.event);
+      }
+    } catch (error) {
+      console.warn('Invalid detection event message', error);
+    }
+  };
+  socket.onclose = () => {
+    if (detectionEventSocket === socket) detectionEventSocket = null;
+    setTimeout(connectDetectionEvents, 2000);
+  };
+  socket.onerror = () => socket.close();
 }
 
 // ====== localStorage ======
@@ -938,28 +1467,40 @@ function exportLog() {
   URL.revokeObjectURL(url);
 }
 
+function completeCurrentSession() {
+  if (!sessionId || rounds.length === 0) return;
+  const endpoint = `${COMPANION_API_ORIGIN}/v1/langgraph/logs/${encodeURIComponent(sessionId)}/complete`;
+  const body = new Blob([''], { type: 'text/plain;charset=UTF-8' });
+  if (navigator.sendBeacon) {
+    navigator.sendBeacon(endpoint, body);
+  } else {
+    browserFetch(endpoint, { method: 'POST', keepalive: true }).catch(() => {});
+  }
+}
+
 function clearLog() {
+  completeCurrentSession();
   rounds = [];
   messages = [];
+  sessionId = 's' + Date.now().toString(36) + Math.random().toString(36).slice(2,6);
+  roundNum = 0;
   updateLog();
   localStorage.removeItem(STORAGE_KEY);
   msgDiv.innerHTML = '';
-  input.focus();
 }
 
-input.addEventListener('keydown', e => {
-  if (e.key === 'Enter' && !e.shiftKey) {
-    e.preventDefault();
-    if (!sendBtn.disabled) send();
-  }
+window.addEventListener('pagehide', event => {
+  if (event.persisted) return;
+  completeCurrentSession();
+  localStorage.removeItem(STORAGE_KEY);
 });
 
 if (!loadLog()) {
   messages = [];
 }
-input.focus();
 fetchDialects();
 updateNotificationButton();
+connectDetectionEvents();
 pollReminders();
 setInterval(pollReminders, 15000);
 refreshReminderCenter();
@@ -1035,5 +1576,7 @@ document.getElementById('historyModal').addEventListener('click', function(e) {
   if (e.target === this) closeHistory();
 });
 </script>
+<script type="module" src="/gesture.js?v=20260721-wave-voice-wakeup"></script>
+<script src="/voice.js?v=20260721-immediate-wake-ack-4"></script>
 </body>
 </html>

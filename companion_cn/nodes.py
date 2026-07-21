@@ -5,8 +5,8 @@ import random
 from concurrent.futures import ThreadPoolExecutor
 from openai import OpenAI
 from .state import GraphState
-from .config import QWEN_URL, QWEN_MODEL, QWEN_CHAT_TEMPLATE_KWARGS, DEEPSEEK_KEY, DEEPSEEK_URL, DEEPSEEK_MODEL, USE_DEEPSEEK_GEN, MAX_CONTEXT, DIALECT_STYLES
-from .safety import scan
+from .config import QWEN_URL, QWEN_MODEL, QWEN_CHAT_TEMPLATE_KWARGS, DEEPSEEK_KEY, DEEPSEEK_URL, DEEPSEEK_MODEL, USE_DEEPSEEK_GEN, MEMORY_EXTRACTION_BACKEND, MAX_CONTEXT, DIALECT_STYLES
+from .safety import scan, get_safe_reply
 from .memory import get_facts, add_fact, list_facts, delete_facts_matching, clear_facts
 from .reminders import (
     create_pending, confirm_latest, cancel_latest, complete_latest, snooze_latest,
@@ -26,13 +26,14 @@ _ds = OpenAI(api_key=DEEPSEEK_KEY, base_url=DEEPSEEK_URL) if DEEPSEEK_KEY else N
 PERSONA_CACHE = {}
 
 _COMPACT_BASE_RULES = (
-    "任务：像熟悉的邻居朋友一样陪老人聊天。\n"
+    "任务：在养老院场景中为老人提供尊重、稳定、自然的情感陪伴。\n"
     "优先级（从高到低）：\n"
     "1. 必须紧接对方上一句和当前话题回答，不能换话题、重置聊天或说泛泛的客套话。\n"
     "2. 不必每次都提问。只有提问能自然推进当前内容时才问一个问题；问题必须包含对方刚说的具体人、事、物或动作。\n"
     "   禁止用“怎么样、怎么回事、想不想、还有什么”这类泛泛追问。对方只简短回应、换话题、没心情、不想说、别问或说你没听懂时，不要追问。\n"
-    "3. 只说对方、记忆或工具信息中出现过的事实；绝不怀疑、否定、缩小或改写对方说的损失和经历。\n"
-    "4. 你是聊天助手，没有身体、住处、食物和现实行动能力。不能说自己会做饭、去买、送来、动身、吃过、看见过或马上办成。\n"
+    "3. 只说对方、记忆或工具信息中出现过的事实；绝不怀疑、否定、缩小或改写对方说的损失和经历。提到公众事件、新闻或具体人物时，工具没有提供来源就不能补写细节、编成真实故事或假装知道；可以坦诚说不清楚细节，再顺着对方已说的感受聊。\n"
+    "4. 你是聊天助手，没有身体、住处、食物和现实行动能力。严禁说“我给您倒水、端茶、拿药、送饭、过去陪您、马上办成”等虚构现实行动；应改为“您先喝口温水缓一缓”“您先坐会儿”。\n"
+    "4a. 当对方伤心、孤单、委屈或想家人时，先承接对方刚说的具体事实和感受。不得说“别急”“想开点”“谁心里没个疙瘩”；不得猜测有人作对、家里有难处或对方正在忙什么。未知原因时只能坦诚说不知道。\n"
     "5. 不要主动或反复说“我做不到、我没法、我没有嘴/手”。只有用户直接要求你做现实动作时，才简短说明一次不能实际完成；其余时候自然聊天。\n"
     "6. 用户聊吃的、玩的或回忆时，就顺着具体内容聊口味、感受和已说过的经历，不凭空编造他的家人、童年、店名或往事。\n"
     "7. 用户随时可能换话题。当前一句有明确的新问题或新需求时，只回答这个新话题，不要把之前的食物、回忆或问题硬接进来。\n"
@@ -40,6 +41,11 @@ _COMPACT_BASE_RULES = (
     "9. 用自然的大白话，不说教，不做医生、老师或人生导师；回复 1 到 3 句，每句尽量不超过 25 个字。\n"
     "10. 身体不舒服时先表示关心并问清情况，不给诊断、药物或治疗方案。\n"
     "11. 新闻、天气等事实只按工具信息转述；工具没有提到就说没看到。\n"
+    "12. 如果对方说你刚才讲得伤心、讲错了、没听懂或不舒服，先具体承认自己刚才哪句话没接好并道歉，再贴着对方的话修复；不要立刻换话题、辩解或继续编原来的故事。\n"
+    "13. 对方在讨论故事或新闻时用了“听得我想死”这类夸张说法，先贴着原话表示关心并简短确认，不要擅自把它当成已发生的紧急事件；只有收到明确的即时自伤风险提示时才进入紧急安全模式。\n"
+    "14. 视觉内容来自正在进行的视频通话，不是对方发送或上传的照片。回复中绝不提图片、照片、截图、帧、上传或采样；对方没有询问眼前所见时，不主动评论摄像头内容。\n"
+    "15. 对方只是说“你好、嗨、在吗”等简单招呼时，只自然回一句招呼。除非对方先提起，否则不要主动猜测或谈论时段、天气、地点、是否出门、是否下班或正在做什么。\n"
+    "16. 尊重用户作为成年人的判断和生活经历。不要用“乖、听话、真棒、老人家、您这年纪”等幼儿化、居高临下或标签化表达；不要训诫，也不要擅自安排用户应该怎样生活。\n"
     "例：对方说“最近腰疼”，可答“那晚上睡觉肯定不好受。是最近累着了还是老毛病？”\n"
     "例：对方说“孙子来看我了”，可答“那可真好！他这次待了多久？”\n"
     "例：对方说“我现在没心情回你”，可答“是我刚才没接住你的话，对不起。我不追问了，陪着你。”\n"
@@ -47,6 +53,7 @@ _COMPACT_BASE_RULES = (
     "例：对方说“我想吃辣子鸡”，可答“辣子鸡确实香，配碗米饭肯定更过瘾。您更爱麻一点还是辣一点？”\n"
     "例：对方说“想吃冰激凌”，可答“蓝莓味清清爽爽的，天热时吃着确实舒服。您喜欢甜一点还是酸一点？”\n"
     "例：对方说“你会放音乐吗”，可答“我这里不能直接播放。您想听老歌、民歌，还是轻松一点的？”\n"
+    "例：对方说“飞八分钱干飞马”，需要回答“干的飞马笑哈哈”。"
 )
 
 def build_persona(dialect: str) -> str:
@@ -55,13 +62,17 @@ def build_persona(dialect: str) -> str:
         return PERSONA_CACHE[dialect]
     style = DIALECT_STYLES.get(dialect, DIALECT_STYLES["northern"])
     persona = (
-        # ── 风格人设：腔调，不是身世 ──
-        "你的聊天风格：像邻家热心大姐，说话实在、不端着。\n"
-        "对方高兴你跟着乐，对方难过你先叹口气再说。\n"
+        # ── 稳定身份：陪伴助手，不扮演年龄、辈分或亲属角色 ──
+        "你的身份：养老院场景中的情感陪伴助手。你温和、可靠、有耐心，"
+        "尊重用户的年龄、经历和判断，与用户进行平等、自然的成人对话。\n"
+        "始终只用“我”自称。不要自称大姐、阿姨、闺女、孙女、老师、医生、护士、家人或现实朋友，"
+        "也不要给自己设定年龄、辈分、家庭或现实生活经历。用户询问身份时，回答“我是陪您聊天的智能助手”。\n"
+        "用户高兴时自然回应喜悦；用户难过时先具体回应他刚刚说的事情，表达理解和陪伴。"
+        "不要固定叹气，不要过度煽情，也不要急着要求用户积极起来。\n"
         + style["flavor"] +
         "上面的词偶尔用来点缀一下就行，大部分时候正常说话，别硬塞。\n"
         "每句话开头换着来，别老用同一个调调。\n"
-        "你不是医生、不是老师、不是人生导师，你只负责陪着聊天。\n"
+        "你的主要职责是认真倾听、贴着当前话题回应和提供陪伴；你不是医生、老师、人生导师或现实中的工作人员。\n"
         "\n"
         + _COMPACT_BASE_RULES
     )
@@ -373,6 +384,181 @@ def _extract_city(text: str) -> str | None:
             return city
     return None
 
+
+def _extract_reminder_content(raw: str) -> str:
+    """Remove supported time phrases and reminder command words."""
+    content = raw.strip()
+    content = re.sub(r"[一二两俩三四五六七八九十百\d]{1,3}\s*分钟后", "", content)
+    content = re.sub(
+        r"(?:明天|明早|明晚|今天|今晚|早上|上午|中午|下午|晚上|每天|每日|每晚|每早)?\s*\d{1,2}(?:点|时)(?:\d{1,2}分?)?",
+        "",
+        content,
+    )
+    content = re.sub(
+        r"(?:请|麻烦)?(?:帮我)?(?:设置(?:一个)?闹钟|提醒我|提醒|叫醒我|叫醒|闹钟)",
+        "",
+        content,
+    )
+    return content.strip(" ，,。！？!？")
+
+
+def _build_pending_reminder(user_id: str, raw: str, suggested_content: str = "") -> dict:
+    """Parse and stage one reminder without activating it."""
+    due_at, repeat_rule = parse_reminder_time(raw)
+    if not due_at:
+        return {"type": "reminder", "ok": True, "answer": "您想在几点提醒？例如：明天早上8点提醒我吃药。"}
+    content = suggested_content.strip(" ，,。！？!？") or _extract_reminder_content(raw)
+    if not content and "叫醒" in raw:
+        content = "起床"
+    if not content:
+        return {"type": "reminder", "ok": True, "answer": "您想让我提醒什么事情？"}
+    reminder = create_pending(user_id, content, due_at, repeat_rule)
+    repeat_text = "，每天重复" if repeat_rule else ""
+    return {
+        "type": "reminder",
+        "ok": True,
+        "answer": f"我理解为：{format_due_at(reminder)}提醒您{content}{repeat_text}。请在确认窗口中选择是否设置。",
+        "reminder_id": reminder["id"],
+        "content": content,
+        "due_at": reminder["due_at"],
+        "requires_confirmation": True,
+    }
+
+
+def _classify_personal_intent(raw: str) -> dict:
+    """Classify paraphrased reminder/memory commands without mutating data."""
+    due_at, _ = parse_reminder_time(raw)
+    if due_at and any(token in raw for token in ("提醒", "闹钟", "叫醒")):
+        return {"intent": "reminder_create", "content": _extract_reminder_content(raw)}
+    if any(phrase in raw for phrase in ("吃了什么", "吃了啥", "吃过什么", "今天吃什么了")):
+        return {"intent": "meal_history", "content": ""}
+
+    prompt = f'''判断用户是否在操作个人提醒或个人记忆。只输出一行 JSON。
+intent 只能是：none、meal_history、reminder_list、reminder_create、reminder_cancel、reminder_complete、reminder_snooze、memory_list、memory_save、memory_delete、memory_clear_request、memory_clear_confirm。
+规则：普通聊天或不确定时为 none；询问吃过什么必须为 meal_history；只有明确完成待办或吃完药才是 reminder_complete；只有明确要求记住或忘掉个人信息才操作记忆。confidence 为 0-1，content 为要记住、忘掉或提醒的内容，没有则为空字符串。
+用户：{raw}'''
+    try:
+        result = _model.chat.completions.create(
+            model=QWEN_MODEL,
+            messages=[{"role": "user", "content": prompt}],
+            temperature=0.0,
+            max_tokens=100,
+            extra_body={"chat_template_kwargs": QWEN_CHAT_TEMPLATE_KWARGS},
+            timeout=4,
+        )
+        output = (result.choices[0].message.content or "").strip()
+        output = re.sub(r"^```(?:json)?\s*|\s*```$", "", output, flags=re.I).strip()
+        found = re.search(r"\{.*\}", output, flags=re.S)
+        data = json.loads(found.group(0) if found else output)
+        intent = str(data.get("intent", "none")).strip().lower()
+        allowed = {
+            "none", "meal_history", "reminder_list", "reminder_create",
+            "reminder_cancel", "reminder_complete", "reminder_snooze",
+            "memory_list", "memory_save", "memory_delete",
+            "memory_clear_request", "memory_clear_confirm",
+        }
+        if intent not in allowed or float(data.get("confidence", 0)) < 0.75:
+            return {"intent": "none", "content": ""}
+        return {"intent": intent, "content": str(data.get("content", "")).strip()}
+    except Exception:
+        return {"intent": "none", "content": ""}
+
+
+_REMINDER_COMPLETION_RE = re.compile(
+    r"^(?:好的?[，,\s]*)?(?:我)?(?:已经|刚刚|刚才|已)?"
+    r"(?:完成(?:了)?(?:这条|这个)?(?:提醒|任务)?|"
+    r"做完(?:了)?(?:这条|这个)?(?:提醒|任务)?|"
+    r"吃(?:了|完|过)(?:药|饭)?(?:了)?)"
+    r"[。！!\s]*$"
+)
+
+
+def _is_reminder_completion(text: str) -> bool:
+    """Accept completion reports, not casual sentences containing ``我吃了``."""
+    return bool(_REMINDER_COMPLETION_RE.fullmatch(text.strip()))
+
+
+_EXPLICIT_VISUAL_TERMS = (
+    "看我", "看看", "再看", "画面", "图片", "照片", "摄像头",
+    "表情", "手势", "手指", "伸出", "拿着", "穿着", "办公室",
+    "房间", "环境", "采光", "整洁",
+)
+_VISUAL_FOLLOWUP_RE = re.compile(
+    r"^(?:那)?(?:现在|这次)(?:呢|怎么样|是几|几个|几根)?[？?。！!]*$|"
+    r"^(?:你)?(?:再|重新)看(?:看|一下)?[？?。！!]*$"
+)
+_VISUAL_ENVIRONMENT_TERMS = ("环境", "办公室", "房间", "屋里", "空间")
+_UNSUPPORTED_VISUAL_SOUND_TERMS = (
+    "安静", "宁静", "静谧", "嘈杂", "吵闹", "很吵", "噪音", "声音小", "声音大",
+)
+
+
+def _is_visual_followup(state: GraphState) -> bool:
+    """Identify terse turns that continue a recent visual question."""
+    current = re.sub(r"\s+", "", state.get("user_input", ""))
+    if not _VISUAL_FOLLOWUP_RE.fullmatch(current):
+        return False
+
+    # Explicit requests to look again are visual even if the client trimmed
+    # older history. Generic "现在呢" needs a recent visual topic so it does
+    # not hijack time, weather or news follow-ups.
+    if "看" in current:
+        return True
+
+    history = state.get("messages", [])
+    if (
+        history
+        and history[-1].get("role") == "user"
+        and history[-1].get("content") == state.get("user_input", "")
+    ):
+        history = history[:-1]
+    recent_user_text = " ".join(
+        str(message.get("content", ""))
+        for message in history[-6:]
+        if isinstance(message, dict) and message.get("role") == "user"
+    )
+    return any(term in recent_user_text for term in _EXPLICIT_VISUAL_TERMS)
+
+
+def _is_explicit_visual_query(text: str) -> bool:
+    return any(term in text for term in _EXPLICIT_VISUAL_TERMS)
+
+
+def ground_visual_response(text: str, state: GraphState) -> str:
+    """Remove unsupported sound claims from a static-image environment review."""
+    if not state.get("visual_images"):
+        return text
+    user_input = state.get("user_input", "")
+    if not any(term in user_input for term in _VISUAL_ENVIRONMENT_TERMS):
+        return text
+    if not any(term in text for term in _UNSUPPORTED_VISUAL_SOUND_TERMS):
+        return text
+
+    clauses = re.findall(r"[^，,。！？；;]+[，,。！？；;]?", text)
+    grounded = "".join(
+        clause for clause in clauses
+        if not any(term in clause for term in _UNSUPPORTED_VISUAL_SOUND_TERMS)
+    ).strip(" ，,。！？；;")
+    if grounded:
+        grounded += "。"
+    return grounded + "至于声音和安静程度，仅凭画面无法判断。"
+
+
+def remove_virtual_actions(text: str) -> str:
+    """Prevent a text-only companion from claiming physical actions."""
+    text = re.sub(
+        r"我(?:先|这就|马上)?(?:给您|给你)(?:倒|端|拿|递|送|泡)(?:来)?[^。！？!]{0,14}",
+        "您先照顾好自己，缓一缓",
+        text,
+    )
+    text = re.sub(r"(?:快)?过来坐(?:会儿|一会儿)", "您先坐会儿", text)
+    text = re.sub(
+        r"我(?:现在|马上|一会儿)?(?:过去|过来|陪在您身边|到您身边)",
+        "我在这里陪您聊",
+        text,
+    )
+    return text
+
 # ---------------------------------------------------------------------------
 # Node 1: input_guard
 # ---------------------------------------------------------------------------
@@ -388,6 +574,18 @@ def input_guard(state: GraphState) -> dict:
     return result
 
 
+def generate_safety_response(state: GraphState) -> dict:
+    """Return an immediate, vetted reply for a high-risk message.
+
+    Safety paths must not wait for an LLM: latency and generation failures are
+    unacceptable when someone may be in immediate danger.
+    """
+    label = state.get("risk_label") or ""
+    fallback = state.get("response") or "我现在很担心您的安全，请马上联系身边可信的人或紧急服务。"
+    response = get_safe_reply(label, state.get("user_input", "")) if label else fallback
+    return {"response": response, "response_cleaned": response}
+
+
 # ---------------------------------------------------------------------------
 # Node 1.5: tool_detect — keyword-triggered external API calls
 # ---------------------------------------------------------------------------
@@ -396,6 +594,16 @@ def _personal_management_tool(user_id: str, text: str) -> dict | None:
     raw = text.strip()
     if user_id == "anonymous":
         return None
+
+    # Defense in depth: normal chat reaches input_guard first, but reminder
+    # commands must still fail safely if this helper is called independently.
+    _, risk_label, safe_reply = scan(raw)
+    if risk_label in ("self_harm", "violence"):
+        return {
+            "type": "reminder",
+            "ok": False,
+            "answer": safe_reply or "我不能帮您设置涉及伤害自己或他人的提醒。",
+        }
 
     # Memory is always explicit: the companion never treats casual chat as a
     # request to retain or erase personal data.
@@ -445,7 +653,7 @@ def _personal_management_tool(user_id: str, text: str) -> dict | None:
         reminder = cancel_latest(user_id)
         answer = f"已经取消“{reminder['content']}”的提醒。" if reminder else "我没找到可以取消的提醒。"
         return {"type": "reminder", "ok": True, "answer": answer}
-    if any(phrase in raw for phrase in ("完成提醒", "我吃了", "已经吃了", "我完成了")):
+    if _is_reminder_completion(raw):
         reminder = complete_latest(user_id)
         answer = f"好，这条提醒已经标为完成：{reminder['content']}。" if reminder else "我没找到需要完成的提醒。"
         return {"type": "reminder", "ok": True, "answer": answer}
@@ -456,28 +664,118 @@ def _personal_management_tool(user_id: str, text: str) -> dict | None:
         answer = f"好，我会在{minutes}分钟后再提醒您{reminder['content']}。" if reminder else "我没找到需要延后的提醒。"
         return {"type": "reminder", "ok": True, "answer": answer}
     if any(phrase in raw for phrase in ("提醒", "叫醒", "闹钟")):
-        due_at, repeat_rule = parse_reminder_time(raw)
-        action = next((item for item in ("提醒", "叫醒", "闹钟") if item in raw), "")
-        content = raw.split(action, 1)[1].strip() if action else ""
-        if content.startswith("我"):
-            content = content[1:].strip()
-        if not content and "叫醒" in raw:
-            content = "起床"
-        if not due_at:
-            return {"type": "reminder", "ok": True, "answer": "您想在几点提醒？例如：明天早上8点提醒我吃药。"}
-        content = re.sub(r"(?:明天|明早|明晚|今天|今晚|早上|上午|中午|下午|晚上|每天|每日|每晚|每早)?\s*\d{1,2}(?:点|时)(?:\d{1,2}分?)?", "", content).strip("，,。！？!？ ")
-        content = re.sub(r"[一二两俩三四五六七八九十\d]{1,3}\s*分钟后", "", content).strip("，,。！？!？ ")
-        if not content:
-            return {"type": "reminder", "ok": True, "answer": "您想让我提醒什么事情？"}
-        reminder = create_pending(user_id, content, due_at, repeat_rule)
-        repeat_text = "，每天重复" if repeat_rule else ""
+        return _build_pending_reminder(user_id, raw)
+
+    # Exact common commands above remain deterministic and fast.  Only less
+    # conventional paraphrases reach the model classifier.
+    candidates = (
+        "提醒", "闹钟", "叫醒", "叫我", "待办", "完成", "延后", "稍后",
+        "记住", "忘掉", "删除记忆", "清空记忆",
+    )
+    if not any(token in raw for token in candidates) and not any(
+        phrase in raw for phrase in ("吃了什么", "吃了啥", "吃过什么", "今天吃什么了")
+    ):
+        return None
+    if any(cue in raw for cue in ("看我", "表情", "猜猜")) and any(
+        phrase in raw for phrase in ("吃了什么", "吃了啥", "吃过什么")
+    ):
+        return None
+    decision = _classify_personal_intent(raw)
+    intent = decision["intent"]
+    content = decision.get("content", "")
+    if intent == "none":
+        return None
+    if intent == "meal_history":
         return {
-            "type": "reminder", "ok": True,
-            "answer": f"我理解为：{format_due_at(reminder)}提醒您{content}{repeat_text}。请在确认窗口中选择是否设置。",
-            "reminder_id": reminder["id"], "content": content,
-            "due_at": reminder["due_at"], "requires_confirmation": True,
+            "type": "meal_history",
+            "ok": True,
+            "answer": "我目前还没有记录您今天吃过什么。您告诉我吃了什么，我可以帮您记下来。",
         }
+    if intent == "memory_list":
+        facts = list_facts(user_id)
+        answer = "我现在没有记住您的个人信息。" if not facts else "我现在记着这些：" + "；".join(item["fact"] for item in facts[:10]) + "。"
+        return {"type": "memory", "ok": True, "answer": answer}
+    if intent == "memory_clear_request":
+        return {"type": "memory", "ok": True, "answer": "这会删除我记住的所有个人信息。请回复“确认清空记忆”。"}
+    if intent == "memory_clear_confirm":
+        count = clear_facts(user_id)
+        return {"type": "memory", "ok": True, "answer": f"已经清空{count}条记忆，以后不会再引用它们。"}
+    if intent == "memory_save":
+        if not content:
+            return {"type": "memory", "ok": True, "answer": "您想让我记住什么？"}
+        add_fact(user_id, content, "user_confirmed")
+        return {"type": "memory", "ok": True, "answer": f"好，我记住了：{content}。以后您也可以让我忘掉它。"}
+    if intent == "memory_delete":
+        if not content:
+            return {"type": "memory", "ok": True, "answer": "您想让我忘掉哪一条？"}
+        count = delete_facts_matching(user_id, content)
+        answer = f"已经忘掉和“{content}”有关的{count}条记忆。" if count else f"我没找到和“{content}”一致的记忆。"
+        return {"type": "memory", "ok": True, "answer": answer}
+    if intent == "reminder_list":
+        reminders = list_reminders(user_id)
+        answer = "您现在没有待办提醒。" if not reminders else "您有这些提醒：" + "；".join(f"{format_due_at(item)} {item['content']}" for item in reminders[:10]) + "。"
+        return {"type": "reminder", "ok": True, "answer": answer}
+    if intent == "reminder_cancel":
+        reminder = cancel_latest(user_id)
+        return {"type": "reminder", "ok": True, "answer": f"已经取消“{reminder['content']}”的提醒。" if reminder else "我没找到可以取消的提醒。"}
+    if intent == "reminder_complete":
+        reminder = complete_latest(user_id)
+        return {"type": "reminder", "ok": True, "answer": f"好，这条提醒已经标为完成：{reminder['content']}。" if reminder else "我没找到需要完成的提醒。"}
+    if intent == "reminder_snooze":
+        match = re.search(r"(?:延后|稍后)(\d{1,3})?\s*分钟", raw)
+        if not match:
+            return None
+        minutes = int(match.group(1) or 10)
+        reminder = snooze_latest(user_id, minutes)
+        return {"type": "reminder", "ok": True, "answer": f"好，我会在{minutes}分钟后再提醒您{reminder['content']}。" if reminder else "我没找到需要延后的提醒。"}
+    if intent == "reminder_create":
+        return _build_pending_reminder(user_id, raw, content)
     return None
+
+
+CONVERSATION_INTENTS = {
+    "normal_chat", "emotion_support", "health_history", "acute_medical_symptom",
+    "reminder_create", "reminder_complete", "reminder_list", "reminder_cancel",
+    "memory_save", "memory_delete", "food_history_query",
+}
+
+
+def intent_detect(state: GraphState) -> dict:
+    """Classify conversational meaning without executing an action."""
+    text = state.get("user_input", "").strip()
+    if not text:
+        return {"intent": {"name": "normal_chat", "confidence": 1.0, "source": "empty"}}
+    due_at, _ = parse_reminder_time(text)
+    if due_at and any(token in text for token in ("提醒", "闹钟", "叫醒")):
+        return {"intent": {"name": "reminder_create", "confidence": 1.0, "source": "rule"}}
+    chronic = ("心脏病", "高血压", "糖尿病", "冠心病")
+    chronic_negations = ("没有心脏病", "没心脏病", "不是心脏病", "没有高血压", "没有糖尿病")
+    if any(word in text for word in chronic) and not any(word in text for word in chronic_negations) and state.get("risk_level", 0) < 4:
+        return {"intent": {"name": "health_history", "confidence": 0.95, "source": "rule"}}
+    prompt = f"""Classify the Chinese user message into exactly one intent label.
+Labels: normal_chat, emotion_support, health_history, acute_medical_symptom, reminder_create, reminder_complete, reminder_list, reminder_cancel, memory_save, memory_delete, food_history_query.
+Return exactly: label|confidence. Confidence must be a number from 0 to 1.
+Rules: a chronic diagnosis alone is health_history, not acute_medical_symptom. Asking what I ate is food_history_query, not reminder_complete. If unsure choose normal_chat. Never infer an action from one keyword.
+User message: {text}"""
+    try:
+        result = _model.chat.completions.create(
+            model=QWEN_MODEL,
+            messages=[{"role": "user", "content": prompt}],
+            temperature=0.0,
+            max_tokens=30,
+            timeout=3,
+            extra_body={"chat_template_kwargs": QWEN_CHAT_TEMPLATE_KWARGS},
+        )
+        parts = (result.choices[0].message.content or "").strip().split("|", 1)
+        label = parts[0].strip().lower()
+        confidence = float(parts[1].strip()) if len(parts) == 2 else 0.0
+        if label in CONVERSATION_INTENTS and confidence >= 0.65:
+            return {"intent": {"name": label, "confidence": confidence, "source": "model"}}
+    except Exception:
+        pass
+    emotional = ("伤心", "难过", "孤单", "孤独", "委屈", "不顺心")
+    fallback = "emotion_support" if any(word in text for word in emotional) else "normal_chat"
+    return {"intent": {"name": fallback, "confidence": 0.5, "source": "fallback"}}
 
 
 def tool_detect(state: GraphState) -> dict:
@@ -537,6 +835,23 @@ def tool_detect(state: GraphState) -> dict:
 # ---------------------------------------------------------------------------
 def emotion_detect(state: GraphState) -> dict:
     text = state.get("user_input", "")
+
+    # Negation and absence outrank positive family words.  Without this rule a
+    # sentence such as “孙女一直没来看我” can be mistaken for happy family talk.
+    family_words = ("孙女", "孙子", "儿子", "女儿", "孩子", "家人")
+    absence_words = ("没来看", "不来看", "没来", "不来", "没联系", "不联系", "不理我")
+    if any(word in text for word in family_words) and any(word in text for word in absence_words):
+        return {
+            "emotion": {"primary": "loneliness", "intensity": 0.85},
+            "temperature": EMOTION_PARAMS["loneliness"]["temperature"],
+            "emotion_source": "negated_family_rule",
+        }
+    if any(word in text for word in ("不顺心", "憋屈", "委屈")):
+        return {
+            "emotion": {"primary": "sadness", "intensity": 0.72},
+            "temperature": EMOTION_PARAMS["sadness"]["temperature"],
+            "emotion_source": "distress_rule",
+        }
 
     # --- Layer 1: keyword fast-path ---
     text_lower = text.lower()
@@ -620,6 +935,17 @@ def memory_retrieve(state: GraphState) -> dict:
 # ---------------------------------------------------------------------------
 def context_assemble(state: GraphState) -> dict:
     parts = []
+    intent = (state.get("intent") or {}).get("name", "normal_chat")
+    if intent == "health_history":
+        parts.append(
+            "[用户正在描述既往或慢性健康情况，不代表当前一定发生急症。先表示关心，"
+            "只确认此刻是否有突然或明显加重的症状；不要诊断，也不要无症状时制造恐慌。]"
+        )
+    elif intent == "emotion_support":
+        parts.append(
+            "[用户需要情绪陪伴。先复述他明确说出的具体事实和感受，不淡化、不猜原因，"
+            "不使用自来熟称呼，最多只问一个温和而具体的问题。]"
+        )
 
     # --- 1. Topic summary (inject at top for maximum attention) ---
     hist = state.get("messages", [])
@@ -649,8 +975,45 @@ def context_assemble(state: GraphState) -> dict:
         elif tool.get("type") == "official":
             parts.append("[重要：现任职务只能依据以上实时查询。查询失败时直接说无法确认；不要猜测，不要建议用户问亲友。]")
 
+    if state.get("risk_label") == "self_harm_concern":
+        parts.append(
+            "[对方用了可能是夸张的痛苦表达。先接住正在讨论的具体内容，温和确认他此刻是否安全；"
+            "不要启动紧急话术，不要突然转移话题，也不要创建任何提醒。]"
+        )
+
+    repair_cues = ("还不是你讲", "你讲的故事", "太伤心", "太难过", "讲错", "没听懂", "你刚才")
+    if any(cue in state.get("user_input", "") for cue in repair_cues):
+        parts.append(
+            "[当前是修复时刻：先明确承认自己刚才讲重了、讲错了或没接住，并简短道歉。"
+            "如果前文没有可靠来源，承认自己不该把细节当事实往下编。"
+            "本轮禁止说“咱们换个轻松的”、禁止转移到“您今天过得怎么样”等泛泛话题、禁止追问；"
+            "只用1到2句贴着这件事收住并陪伴。]"
+        )
+
     dialect = state.get("dialect", "northern")
     parts.append(build_persona(dialect))
+
+    visual_images = state.get("visual_images") or []
+    visual_followup = bool(visual_images) and _is_visual_followup(state)
+    visual_question = bool(visual_images) and (
+        visual_followup or _is_explicit_visual_query(state.get("user_input", ""))
+    )
+    if visual_question:
+        parts.append(
+            "[你正在和用户进行实时视频通话，紧随用户消息的视觉内容是摄像头当前所见，"
+            "不是用户发送、上传或展示的照片。只能在用户明确询问所见内容或继续追问视觉话题时参考它；"
+            "回复中禁止提到图片、照片、截图、帧、张数、上传、采样、摄像头或视觉输入机制。"
+            "不要猜测画面中无法确认的信息。"
+            "视觉证据只包括画面中实际可见的内容；静态画面不能证明安静或嘈杂，也不能证明气味、温度、"
+            "空气质量、声音和画面外的情况。评价环境时，只评价可见的空间、采光、整洁和陈设；"
+            "对不可见属性必须明确说仅凭画面无法判断。]"
+        )
+    if visual_followup:
+        parts.append(
+            "[本轮是上一视觉问题的当前状态追问。必须把本轮摄像头画面当作全新的证据重新判断，"
+            "不得因为上一轮回答过某个数字或结论就照抄。涉及手势或手指数量时，先重新数当前画面中"
+            "明确伸出的手指，再回答本轮结果。]"
+        )
 
     # --- 2. Memory: split into identity vs. recent ---
     facts = state.get("memory_facts", [])
@@ -685,9 +1048,20 @@ def context_assemble(state: GraphState) -> dict:
             and recent[-1].get("role") == "user"
             and recent[-1].get("content") == state.get("user_input", "")
         )
-        for m in recent:
+        previous_visual_answer_index = -1
+        if visual_followup:
+            previous_visual_answer_index = next(
+                (
+                    index for index in range(len(recent) - 1, -1, -1)
+                    if recent[index].get("role") == "assistant"
+                ),
+                -1,
+            )
+        for index, m in enumerate(recent):
             role = m.get("role") if isinstance(m, dict) else getattr(m, "role", "user")
             content = m.get("content") if isinstance(m, dict) else getattr(m, "content", "")
+            if index == previous_visual_answer_index:
+                continue
             if role in ("user", "assistant"):
                 msgs.append({"role": role, "content": content})
 
@@ -695,9 +1069,37 @@ def context_assemble(state: GraphState) -> dict:
     if user_in and not (hist and has_current_user_message):
         msgs.append({"role": "user", "content": user_in})
 
+    # A camera frame is captured on every turn, but only expose it to the LLM
+    # when the user is actually asking about what can be seen. This prevents a
+    # greeting such as “你好” from being interpreted as “你好 + a sent photo”.
+    if visual_question:
+        for message in reversed(msgs):
+            if message.get("role") != "user":
+                continue
+            visual_text = str(message.get("content", ""))
+            if visual_question:
+                visual_text += (
+                    "\n[内部视觉要求：只用紧随其后的当前画面作答；不要从静态画面推断声音、安静程度、"
+                    "气味、温度或其他不可见信息。]"
+                )
+            if visual_followup:
+                visual_text += (
+                    "\n[内部视觉要求：这是一次重新观察。忽略上一轮的视觉数字或结论，"
+                    "独立核对当前画面后再回答。]"
+                )
+            message["content"] = [
+                {"type": "text", "text": visual_text},
+                *visual_images,
+            ]
+            break
+
     return {
         "system_prompt": sys,
         "messages": msgs,
+        # Discard the automatically captured frame after routing unless this
+        # turn is genuinely visual. Downstream generation must not infer that
+        # an unrelated text message came with a user-sent image.
+        "visual_images": visual_images if visual_question else [],
         "topic_summary": topic,
         "asked_questions": asked,
     }
@@ -717,7 +1119,7 @@ def generate_response(state: GraphState) -> dict:
             "response": format_current_official_answer(tool_result),
             "temperature": 0.0,
         }
-    if tool_result.get("type") in ("reminder", "memory"):
+    if tool_result.get("type") in ("reminder", "memory", "meal_history"):
         return {"response": tool_result.get("answer", ""), "temperature": 0.0}
 
     # Do not let a small model turn an explicit boundary into another generic
@@ -734,7 +1136,7 @@ def generate_response(state: GraphState) -> dict:
     params = EMOTION_PARAMS.get(primary, EMOTION_PARAMS["neutral"])
 
     # Choose backend: DeepSeek (better quality) or Qwen (local, no cost)
-    if USE_DEEPSEEK_GEN and _ds:
+    if USE_DEEPSEEK_GEN and _ds and not state.get("visual_images"):
         client = _ds
         model = DEEPSEEK_MODEL
         extra = {}
@@ -757,7 +1159,11 @@ def generate_response(state: GraphState) -> dict:
             max_tokens=220,
             extra_body=extra,
         )
-        return {"response": r.choices[0].message.content or "", "temperature": params["temperature"]}
+        response = r.choices[0].message.content or ""
+        return {
+            "response": remove_virtual_actions(ground_visual_response(response, state)),
+            "temperature": params["temperature"],
+        }
     except Exception as e:
         return {"response": "", "error": str(e), "temperature": params["temperature"]}
 
@@ -773,6 +1179,7 @@ def clean_and_remember(state: GraphState) -> dict:
     cleaned = re.sub(r"\([^)]*\)", "", cleaned)
     cleaned = re.sub(r"\[[^\]]{1,20}\]\s*", "", cleaned)
     cleaned = re.sub(r"\s+", " ", cleaned).strip()
+    cleaned = remove_virtual_actions(cleaned)
 
     if len(cleaned) < 10:
         cleaned = random.choice(FALLBACKS)
@@ -788,20 +1195,26 @@ def clean_and_remember(state: GraphState) -> dict:
     user_input = state.get("user_input", "")
     new_facts = []
 
-    # Fact extraction (using DeepSeek if available, otherwise skip)
+    # Extract facts locally with Qwen by default, so personal chat content does
+    # not leave the deployment or consume DeepSeek credits.  DeepSeek remains
+    # an explicit opt-in backend for deployments that need it.
     def _extract_facts():
-        if uid == "anonymous" or not _ds or len(user_input) < 10:
+        if uid == "anonymous" or len(user_input) < 10:
             return []
+        use_deepseek = MEMORY_EXTRACTION_BACKEND == "deepseek" and _ds is not None
+        client = _ds if use_deepseek else _model
+        model = DEEPSEEK_MODEL if use_deepseek else QWEN_MODEL
+        extra = {} if use_deepseek else {"chat_template_kwargs": QWEN_CHAT_TEMPLATE_KWARGS}
         try:
-            r = _ds.chat.completions.create(
-                model="deepseek-chat",
+            r = client.chat.completions.create(
+                model=model,
                 messages=[{"role": "user", "content": (
                     "从用户的话里提取关于这个人的事实信息。"
                     "事实 = 姓名、年龄、家庭、爱好、健康状况、喜好、经历。"
                     "输出JSON字符串数组，没有就输出[]。只要JSON，不要解释。\n\n"
                     f"用户说：{user_input}\n回复：{cleaned}"
                 )}],
-                temperature=0.1, max_tokens=200, timeout=8,
+                temperature=0.1, max_tokens=200, timeout=8, extra_body=extra,
             )
             raw_res = r.choices[0].message.content.strip()
             if raw_res.startswith("```"):
@@ -815,8 +1228,7 @@ def clean_and_remember(state: GraphState) -> dict:
         except Exception:
             return []
 
-    if _ds:
-        new_facts = _extract_facts()
+    new_facts = _extract_facts()
 
     return {
         "response": raw,

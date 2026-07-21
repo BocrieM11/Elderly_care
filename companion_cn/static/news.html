@@ -80,6 +80,17 @@
 </main>
 
 <script>
+const COMPANION_API_ORIGIN = window.location.port === '8016' || window.location.protocol === 'https:'
+  ? ''
+  : `${window.location.protocol}//${window.location.hostname}:8016`;
+const browserFetch = window.fetch.bind(window);
+window.fetch = (resource, options) => {
+  if (typeof resource === 'string' && resource.startsWith('/v1/langgraph/')) {
+    resource = COMPANION_API_ORIGIN + resource;
+  }
+  return browserFetch(resource, options);
+};
+
 const API = '/v1/langgraph/news';
 let allCountries = new Set();
 let allSources = new Set();

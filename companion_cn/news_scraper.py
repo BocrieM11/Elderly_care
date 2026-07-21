@@ -3,7 +3,8 @@
 News scraper for 6 Chinese official media sources.
 Scrapes every 5 hours, summarizes with Qwen, deduplicates, stores in SQLite.
 
-Sources: 新华网, 人民网, 央视新闻, 央广网, 中国军网, 中国政府网
+Sources: 新华网, 人民网, 央视新闻, 央广网, 中国军网, 中国政府网,
+         环球网, 参考消息, 海外网
 
 Usage:
   python scripts/news_scraper.py          # run once, scrape all sources
@@ -28,15 +29,16 @@ import feedparser
 from bs4 import BeautifulSoup
 from openai import OpenAI
 
+from .config import QWEN_MODEL, QWEN_URL, QWEN_CHAT_TEMPLATE_KWARGS
+
 # ── Paths ─────────────────────────────────────────────────────────────────────
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 DB_PATH = os.path.join(BASE_DIR, "data", "news.db")
 LOG_PATH = os.path.join(BASE_DIR, "data", "news_scraper.log")
 
 # ── Qwen client ───────────────────────────────────────────────────────────────
-QWEN_URL = "http://192.168.253.95:8013/v1"
-QWEN_MODEL = "qwen35-4b"
-QWEN_CHAT_TEMPLATE_KWARGS = {"enable_thinking": False}
+# Reuse the same endpoint as the companion service.  Keeping a second hard-coded
+# address here made the scraper silently fail after the main LLM moved.
 _llm = OpenAI(base_url=QWEN_URL, api_key="x")
 
 # ── Logging ───────────────────────────────────────────────────────────────────
@@ -64,12 +66,18 @@ def init_db():
                 url TEXT UNIQUE NOT NULL,
                 source TEXT NOT NULL,
                 category TEXT DEFAULT '',
+                country TEXT DEFAULT '',
                 published_at TEXT DEFAULT '',
                 scraped_at TEXT NOT NULL,
                 title_hash TEXT DEFAULT '',
                 is_summarized INTEGER DEFAULT 0
             )
         """)
+        columns = {
+            row[1] for row in conn.execute("PRAGMA table_info(news_articles)").fetchall()
+        }
+        if "country" not in columns:
+            conn.execute("ALTER TABLE news_articles ADD COLUMN country TEXT DEFAULT ''")
         conn.execute("""
             CREATE INDEX IF NOT EXISTS idx_news_source ON news_articles(source)
         """)

@@ -1,30 +1,35 @@
-# 敏感文件
-.env
-*.db
-
-# 缓存
-__pycache__/
-*.pyc
-*.log
-
-# 临时文件
-test_results.jsonl
-bilingual.log
-ui.log
-voice.log
-server.log
-
-# IDE
-.vscode/
-.idea/
-
-# 数据（另仓管理）
-training_data/
-training_data_cn/
-dialogs/
-
-# 压缩包
-*.zip
-
-# 虚拟环境
+# Python environments and generated files
 .venv/
+venv/
+runtime/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+
+# Runtime and personal data
+logs/
+**/logs/
+**/data/
+**/chat_history/
+**/cache/
+*.db
+*.sqlite
+*.sqlite3
+*.log
+*.pid
+
+# Local secrets and machine-specific settings
+.env
+.env.*
+!.env.example
+scripts/local-settings.ps1
+app/conf.yaml.backup
+
+# Download artifacts and editor files
+models/*.tar.bz2
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/

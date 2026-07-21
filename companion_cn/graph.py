@@ -3,20 +3,22 @@ from langgraph.graph import StateGraph, END
 from langgraph.checkpoint.memory import InMemorySaver
 from .state import GraphState
 from .nodes import (
-    input_guard, emotion_detect, memory_retrieve, tool_detect, context_assemble,
+    input_guard, generate_safety_response, intent_detect, emotion_detect, memory_retrieve, tool_detect, context_assemble,
     generate_response, clean_and_remember,
 )
 
 
 def _after_guard(state: GraphState) -> list[str]:
     if state.get("risk_level", 0) >= 3:
-        return [END]
-    return ["emotion_detect", "memory_retrieve", "tool_detect"]
+        return ["generate_safety_response"]
+    return ["intent_detect", "emotion_detect", "memory_retrieve", "tool_detect"]
 
 
 def build() -> StateGraph:
     g = StateGraph(GraphState)
     g.add_node("input_guard", input_guard)
+    g.add_node("generate_safety_response", generate_safety_response)
+    g.add_node("intent_detect", intent_detect)
     g.add_node("emotion_detect", emotion_detect)
     g.add_node("memory_retrieve", memory_retrieve)
     g.add_node("tool_detect", tool_detect)
@@ -28,12 +30,15 @@ def build() -> StateGraph:
 
     g.add_conditional_edges("input_guard", _after_guard, {
         "emotion_detect": "emotion_detect",
+        "intent_detect": "intent_detect",
         "memory_retrieve": "memory_retrieve",
         "tool_detect": "tool_detect",
-        END: END,
+        "generate_safety_response": "generate_safety_response",
     })
+    g.add_edge("generate_safety_response", END)
 
     g.add_edge("emotion_detect", "context_assemble")
+    g.add_edge("intent_detect", "context_assemble")
     g.add_edge("memory_retrieve", "context_assemble")
     g.add_edge("tool_detect", "context_assemble")
     g.add_edge("context_assemble", "generate_response")
